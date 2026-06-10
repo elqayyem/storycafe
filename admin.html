@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>لوحة التحكم — StoryCafe</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@300;400;600;700;900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <link rel="stylesheet" href="css/admin.css">
+</head>
+<body>
+
+    <!-- Login Page -->
+    <div id="login-page" class="login-page">
+        <div class="login-card">
+            <div class="login-logo">
+                <img src="logo.png" alt="StoryCafe" onerror="this.style.display='none'">
+                <h1>StoryCafe</h1>
+                <p>لوحة التحكم</p>
+            </div>
+            <form onsubmit="adminLogin(event)">
+                <div class="form-group">
+                    <label>كلمة المرور</label>
+                    <div class="pw-wrap">
+                        <input type="password" id="login-pw" placeholder="أدخل كلمة المرور..." required autocomplete="current-password">
+                        <button type="button" class="pw-toggle" onclick="togglePwVis()"><i class="fas fa-eye" id="pw-eye"></i></button>
+                    </div>
+                </div>
+                <div class="login-error" id="login-error" style="display:none">كلمة المرور غير صحيحة</div>
+                <button type="submit" class="btn-login">
+                    <i class="fas fa-sign-in-alt"></i>
+                    دخول
+                </button>
+            </form>
+            <a href="index.html" class="back-link"><i class="fas fa-arrow-left"></i> العودة للموقع</a>
+        </div>
+    </div>
+
+    <!-- Dashboard -->
+    <div id="dashboard" class="dashboard" style="display:none">
+
+        <!-- Sidebar -->
+        <aside class="sidebar" id="sidebar">
+            <div class="sidebar-header">
+                <img src="logo.png" alt="StoryCafe" onerror="this.style.display='none'">
+                <div>
+                    <span class="sb-title">StoryCafe</span>
+                    <span class="sb-subtitle">لوحة التحكم</span>
+                </div>
+            </div>
+            <nav class="sidebar-nav">
+                <button class="sb-link active" data-page="overview" onclick="showPage('overview', this)">
+                    <i class="fas fa-chart-pie"></i> نظرة عامة
+                </button>
+                <button class="sb-link" data-page="products" onclick="showPage('products', this)">
+                    <i class="fas fa-coffee"></i> المنتجات
+                </button>
+                <button class="sb-link" data-page="categories" onclick="showPage('categories', this)">
+                    <i class="fas fa-th-large"></i> التصنيفات
+                </button>
+                <button class="sb-link" data-page="orders" onclick="showPage('orders', this)">
+                    <i class="fas fa-receipt"></i> الطلبات
+                </button>
+            </nav>
+            <div class="sidebar-footer">
+                <button class="sb-link sb-logout" onclick="adminLogout()">
+                    <i class="fas fa-sign-out-alt"></i> تسجيل الخروج
+                </button>
+                <a href="index.html" class="sb-link" target="_blank">
+                    <i class="fas fa-external-link-alt"></i> عرض الموقع
+                </a>
+            </div>
+        </aside>
+
+        <!-- Main -->
+        <main class="main-content">
+            <div class="topbar">
+                <button class="sidebar-toggle" onclick="toggleSidebar()" aria-label="القائمة">
+                    <i class="fas fa-bars"></i>
+                </button>
+                <h2 class="topbar-title" id="topbar-title">نظرة عامة</h2>
+                <div class="topbar-actions">
+                    <span class="admin-badge"><i class="fas fa-user-shield"></i> مدير</span>
+                </div>
+            </div>
+
+            <!-- Overview Page -->
+            <div id="page-overview" class="page active">
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-icon stat-blue"><i class="fas fa-coffee"></i></div>
+                        <div class="stat-info">
+                            <span class="stat-label">إجمالي المنتجات</span>
+                            <span class="stat-val" id="stat-products">--</span>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon stat-gold"><i class="fas fa-th-large"></i></div>
+                        <div class="stat-info">
+                            <span class="stat-label">التصنيفات</span>
+                            <span class="stat-val" id="stat-cats">--</span>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon stat-green"><i class="fas fa-receipt"></i></div>
+                        <div class="stat-info">
+                            <span class="stat-label">الطلبات</span>
+                            <span class="stat-val" id="stat-orders">--</span>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon stat-red"><i class="fas fa-fire"></i></div>
+                        <div class="stat-info">
+                            <span class="stat-label">أشهر صنف</span>
+                            <span class="stat-val stat-sm" id="stat-top">مشروبات باردة</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="overview-grid">
+                    <div class="admin-card">
+                        <div class="admin-card-header">
+                            <h3><i class="fas fa-list"></i> آخر المنتجات المضافة</h3>
+                        </div>
+                        <div id="recent-products-list" class="recent-list">جاري التحميل...</div>
+                    </div>
+                    <div class="admin-card">
+                        <div class="admin-card-header">
+                            <h3><i class="fas fa-receipt"></i> آخر الطلبات</h3>
+                        </div>
+                        <div id="recent-orders-list" class="recent-list">لا توجد طلبات بعد</div>
+                    </div>
+                </div>
+                <div class="supabase-notice" id="supabase-notice" style="display:none">
+                    <i class="fas fa-info-circle"></i>
+                    <span>لتفعيل لوحة التحكم الكاملة، أضف بيانات Supabase في <code>js/config.js</code> وشغّل سكريبت قاعدة البيانات <code>supabase-schema.sql</code></span>
+                </div>
+            </div>
+
+            <!-- Products Page -->
+            <div id="page-products" class="page" style="display:none">
+                <div class="page-toolbar">
+                    <div class="page-search">
+                        <i class="fas fa-search"></i>
+                        <input type="text" placeholder="ابحث عن منتج..." oninput="searchAdminProducts(this.value)">
+                    </div>
+                    <div class="page-toolbar-right">
+                        <select class="admin-select" onchange="filterAdminByCategory(this.value)" id="prod-cat-filter">
+                            <option value="">كل التصنيفات</option>
+                        </select>
+                        <button class="btn-admin-primary" onclick="openProductModal()">
+                            <i class="fas fa-plus"></i> منتج جديد
+                        </button>
+                    </div>
+                </div>
+                <div class="admin-table-wrap">
+                    <table class="admin-table" id="products-table">
+                        <thead>
+                            <tr>
+                                <th>#</th>
+                                <th>الصورة</th>
+                                <th>اسم المنتج</th>
+                                <th>التصنيف</th>
+                                <th>السعر</th>
+                                <th>الحالة</th>
+                                <th>إجراءات</th>
+                            </tr>
+                        </thead>
+                        <tbody id="products-tbody"></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Categories Page -->
+            <div id="page-categories" class="page" style="display:none">
+                <div class="page-toolbar">
+                    <h3>إدارة التصنيفات</h3>
+                    <button class="btn-admin-primary" onclick="openCatModal()">
+                        <i class="fas fa-plus"></i> تصنيف جديد
+                    </button>
+                </div>
+                <div class="cats-admin-grid" id="cats-admin-grid"></div>
+            </div>
+
+            <!-- Orders Page -->
+            <div id="page-orders" class="page" style="display:none">
+                <div class="page-toolbar">
+                    <h3>إدارة الطلبات</h3>
+                    <div class="page-toolbar-right">
+                        <select class="admin-select" onchange="filterOrdersByStatus(this.value)">
+                            <option value="">كل الطلبات</option>
+                            <option value="pending">قيد الانتظار</option>
+                            <option value="confirmed">مؤكد</option>
+                            <option value="preparing">قيد التحضير</option>
+                            <option value="ready">جاهز</option>
+                            <option value="delivered">تم التسليم</option>
+                            <option value="cancelled">ملغي</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="admin-table-wrap">
+                    <table class="admin-table" id="orders-table">
+                        <thead>
+                            <tr>
+                                <th>رقم الطلب</th>
+                                <th>التاريخ</th>
+                                <th>المنتجات</th>
+                                <th>المجموع</th>
+                                <th>الحالة</th>
+                                <th>إجراءات</th>
+                            </tr>
+                        </thead>
+                        <tbody id="orders-tbody">
+                            <tr><td colspan="6" class="table-empty">لا توجد طلبات مسجّلة</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Product Modal -->
+    <div class="modal-overlay" id="product-modal" style="display:none" onclick="closeProductModal(event)">
+        <div class="modal-box">
+            <div class="modal-header">
+                <h3 id="product-modal-title">منتج جديد</h3>
+                <button onclick="closeProductModal()" class="modal-close"><i class="fas fa-times"></i></button>
+            </div>
+            <form onsubmit="saveProduct(event)" class="modal-form">
+                <input type="hidden" id="pm-id">
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>اسم المنتج (إنجليزي) *</label>
+                        <input type="text" id="pm-name" placeholder="Ice Caramel Latte" required>
+                    </div>
+                    <div class="form-group">
+                        <label>السعر (ل.ل) *</label>
+                        <input type="number" id="pm-price" placeholder="200000" required min="0">
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>التصنيف *</label>
+                        <select id="pm-cat" required>
+                            <option value="">اختر تصنيفاً</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>الحالة</label>
+                        <select id="pm-status">
+                            <option value="true">متاح</option>
+                            <option value="false">غير متاح</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>رابط الصورة</label>
+                    <input type="url" id="pm-image" placeholder="https://...">
+                </div>
+                <div class="modal-actions">
+                    <button type="button" class="btn-admin-outline" onclick="closeProductModal()">إلغاء</button>
+                    <button type="submit" class="btn-admin-primary">
+                        <i class="fas fa-save"></i> حفظ المنتج
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Category Modal -->
+    <div class="modal-overlay" id="cat-modal" style="display:none" onclick="closeCatModal(event)">
+        <div class="modal-box modal-sm">
+            <div class="modal-header">
+                <h3 id="cat-modal-title">تصنيف جديد</h3>
+                <button onclick="closeCatModal()" class="modal-close"><i class="fas fa-times"></i></button>
+            </div>
+            <form onsubmit="saveCat(event)" class="modal-form">
+                <input type="hidden" id="cm-id">
+                <div class="form-group">
+                    <label>اسم التصنيف (عربي) *</label>
+                    <input type="text" id="cm-name-ar" placeholder="مشروبات باردة" required>
+                </div>
+                <div class="form-group">
+                    <label>اسم التصنيف (إنجليزي)</label>
+                    <input type="text" id="cm-name-en" placeholder="Cold Drinks">
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>الأيقونة (Emoji)</label>
+                        <input type="text" id="cm-icon" placeholder="🥤">
+                    </div>
+                    <div class="form-group">
+                        <label>الترتيب</label>
+                        <input type="number" id="cm-order" placeholder="1" min="1">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>رابط الصورة</label>
+                    <input type="url" id="cm-image" placeholder="https://...">
+                </div>
+                <div class="modal-actions">
+                    <button type="button" class="btn-admin-outline" onclick="closeCatModal()">إلغاء</button>
+                    <button type="submit" class="btn-admin-primary">
+                        <i class="fas fa-save"></i> حفظ التصنيف
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Admin Toast -->
+    <div class="admin-toast-container" id="admin-toast-container"></div>
+
+    <!-- Supabase -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+    <script src="js/config.js"></script>
+    <script src="js/data.js"></script>
+    <script src="js/admin.js"></script>
+</body>
+</html>

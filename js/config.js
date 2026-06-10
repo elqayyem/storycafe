@@ -31,7 +31,7 @@ const CONFIG = {
   whatsappNumber: '96179331820',
   currency: 'ل.ل',
   storeName: 'StoryCafe',
-  cacheKey: 'storycafe_menu_cache',
+  cacheKey: 'storycafe_menu_cache_v2',
   cacheTTL: 24 * 60 * 60 * 1000,       // 24 hours in ms
   searchDebounce: 300,                   // ms
   adminPassword: 'storycafe2024',        // change in production

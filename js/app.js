@@ -10,6 +10,8 @@ let searchTimer = null;
 
 // ---- Init ----
 document.addEventListener('DOMContentLoaded', async () => {
+  // Clear old cache versions
+  localStorage.removeItem('storycafe_menu_cache');
   initLoadingScreen();
   initNavbar();
   initScrollReveal();

@@ -14,7 +14,8 @@ function adminLogin(e) {
   e.preventDefault();
   const pw = document.getElementById('login-pw').value;
   const errEl = document.getElementById('login-error');
-  if (pw === CONFIG.adminPassword) {
+  const adminPass = (typeof CONFIG !== 'undefined' && CONFIG.adminPassword) ? CONFIG.adminPassword : 'storycafe2024';
+  if (pw === adminPass) {
     sessionStorage.setItem('sc_admin', '1');
     document.getElementById('login-page').style.display = 'none';
     document.getElementById('dashboard').style.display = 'flex';

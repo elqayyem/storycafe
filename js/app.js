@@ -37,8 +37,8 @@ function initLoadingScreen() {
 
 // ---- Data Loading ----
 async function loadMenuData() {
-  const cached = getCachedData();
-  if (cached) return cached;
+  // Always start with local data so products show instantly
+  const local = { categories: CATEGORIES_LOCAL, products: PRODUCTS_LOCAL };
 
   if (supabase) {
     try {
@@ -47,7 +47,7 @@ async function loadMenuData() {
         supabase.from('products').select('*').eq('is_available', true).order('display_order'),
       ]);
       if (cats && prods && cats.length > 0) {
-        const result = {
+        return {
           categories: cats.map(c => ({
             id: c.id, name: c.name_ar, nameEn: c.name_en,
             icon: c.icon, image: c.image_url,
@@ -60,16 +60,12 @@ async function loadMenuData() {
             available: p.is_available,
           })),
         };
-        setCachedData(result);
-        return result;
       }
     } catch (e) {
       console.warn('[StoryCafe] Supabase load failed, using local data');
     }
   }
 
-  const local = { categories: CATEGORIES_LOCAL, products: PRODUCTS_LOCAL };
-  setCachedData(local);
   return local;
 }
 
@@ -243,7 +239,7 @@ function renderProducts() {
     const qty = getItemQty(p.id);
     return `
     <div class="product-card" data-id="${p.id}">
-      <div class="product-img-wrap" onclick="openLightbox('${p.image}')">
+      <div class="product-img-wrap" onclick="openLightbox(this.querySelector('img').src)">
         <img src="${p.image}" alt="${p.name}" loading="lazy" onerror="this.src='https://images.unsplash.com/photo-1495474472287-4d71bcdd2085?w=400&q=80'">
         ${cat ? `<span class="product-cat-badge">${cat.icon} ${cat.name}</span>` : ''}
       </div>
@@ -256,13 +252,18 @@ function renderProducts() {
             <span class="qty-num">${qty}</span>
             <button class="qty-btn" onclick="changeQtyOnCard(${p.id}, 1)" aria-label="زيادة">+</button>
           </div>
-          <button class="add-btn ${qty > 0 ? 'in-cart' : ''}" onclick="addToCart(${JSON.stringify(p).replace(/"/g, '&quot;')})">
+          <button class="add-btn ${qty > 0 ? 'in-cart' : ''}" onclick="addToCartById(${p.id})">
             ${qty > 0 ? '<i class="fas fa-check"></i> في السلة' : '<i class="fas fa-plus"></i> أضف للسلة'}
           </button>
         </div>
       </div>
     </div>`;
   }).join('');
+}
+
+function addToCartById(productId) {
+  const product = allProducts.find(p => p.id === productId);
+  if (product) addToCart(product);
 }
 
 function changeQtyOnCard(productId, delta) {

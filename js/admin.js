@@ -1,6 +1,7 @@
 // =============================================
-// StoryCafe — Admin Panel
+// StoryCafe — Admin Panel (Secured v2)
 // =============================================
+'use strict';
 
 let adminProducts    = [];
 let adminCategories  = [];
@@ -10,67 +11,163 @@ let filteredProducts = [];
 let imgTabMode       = 'url';
 let catImgTabMode    = 'url';
 let pendingConfirmFn = null;
+let _csrfToken       = null;
 
 // ═══════════════════════════════════════
-// BOOT — synchronous (scripts at body bottom, DOM already ready)
+// BOOT
 // ═══════════════════════════════════════
-(function adminBoot() {
-  if (isLoggedIn()) {
+(async function adminBoot() {
+  _csrfToken = Security.csrf.get();
+
+  if (await Security.session.isValid()) {
     showDashboard();
+    startSecurityWatchers();
   } else {
     showLoginPage();
   }
 })();
 
-function isLoggedIn() {
-  return sessionStorage.getItem('sc_admin') === '1';
-}
-
-function showLoginPage() {
-  document.getElementById('login-page').style.display = 'flex';
-  document.getElementById('dashboard').style.display  = 'none';
-}
-
-function showDashboard() {
-  document.getElementById('login-page').style.display = 'none';
-  document.getElementById('dashboard').style.display  = 'flex';
-  loadAdminData();
+function startSecurityWatchers() {
+  // Auto-logout after 30 min inactivity
+  Security.autoLogout.start(
+    () => adminLogout('inactivity'),
+    () => showAdminToast('سيتم تسجيل خروجك خلال دقيقتين بسبب عدم النشاط', 'warning')
+  );
+  // Re-validate session every 5 minutes
+  setInterval(async () => {
+    if (!(await Security.session.isValid())) adminLogout('session_expired');
+  }, 5 * 60 * 1000);
 }
 
 // ═══════════════════════════════════════
 // AUTH
 // ═══════════════════════════════════════
-function adminLogin(e) {
+async function adminLogin(e) {
   e.preventDefault();
-  const pw = document.getElementById('login-pw').value;
-  const correctPw = (typeof CONFIG !== 'undefined' && CONFIG.adminPassword)
-    ? CONFIG.adminPassword : 'storycafe2024';
-  if (pw === correctPw) {
-    sessionStorage.setItem('sc_admin', '1');
+
+  // CSRF check
+  const formToken = document.getElementById('login-csrf')?.value;
+  if (!Security.csrf.verify(formToken)) {
+    showAdminToast('طلب غير صالح. أعد تحميل الصفحة.', 'error');
+    return;
+  }
+
+  // Brute-force check
+  const bf = Security.bruteForce.check();
+  if (bf.locked) {
+    showLoginError(`حسابك مقفل. حاول مرة أخرى بعد ${bf.remaining} دقيقة`);
+    return;
+  }
+
+  const email    = (document.getElementById('login-email')?.value || '').trim().toLowerCase();
+  const password = document.getElementById('login-pw')?.value || '';
+  const btn      = document.getElementById('login-submit');
+
+  // Basic input validation
+  if (!password || password.length < 6) {
+    showLoginError('أدخل بيانات صحيحة');
+    return;
+  }
+
+  if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> جاري التحقق...'; }
+
+  try {
+    // ── Path A: Supabase Auth (production) ──────────────────
+    if (typeof supabase !== 'undefined' && supabase &&
+        typeof SUPABASE_URL !== 'undefined' && SUPABASE_URL !== 'https://YOUR_PROJECT_ID.supabase.co') {
+
+      const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+
+      if (error) {
+        await Security.bruteForce.increment();
+        await Security.audit.log('LOGIN_FAILED', { email, reason: 'bad_credentials' });
+        const remaining = Security.bruteForce.check().remaining;
+        showLoginError(`بيانات غير صحيحة. متبقي ${remaining} محاولة`);
+        return;
+      }
+
+      // Verify admin role in admin_profiles table
+      const { data: profile, error: pe } = await supabase
+        .from('admin_profiles')
+        .select('role, is_active')
+        .eq('id', data.user.id)
+        .maybeSingle();
+
+      if (pe || !profile || !profile.is_active) {
+        await supabase.auth.signOut();
+        await Security.audit.log('LOGIN_UNAUTHORIZED', { email });
+        showLoginError('ليس لديك صلاحية الوصول');
+        return;
+      }
+
+      sessionStorage.setItem('sc_admin_role', Security.sanitize(profile.role));
+      await Security.audit.log('LOGIN_SUCCESS', { email, role: profile.role });
+
+    // ── Path B: Local password fallback (dev / no Supabase) ─
+    } else {
+      const correct = (typeof CONFIG !== 'undefined' && CONFIG.adminPassword) || 'storycafe2024';
+      if (password !== correct) {
+        Security.bruteForce.increment();
+        const remaining = Security.bruteForce.check().remaining;
+        showLoginError(`كلمة المرور غير صحيحة. متبقي ${remaining} محاولة`);
+        return;
+      }
+      sessionStorage.setItem('sc_admin', '1');
+    }
+
+    Security.bruteForce.reset();
+    Security.csrf.rotate();
     document.getElementById('login-error').style.display = 'none';
     showDashboard();
-  } else {
-    document.getElementById('login-error').style.display = 'flex';
-    document.getElementById('login-pw').value = '';
-    document.getElementById('login-pw').focus();
+    startSecurityWatchers();
+
+  } catch (err) {
+    console.error('[Admin] Login error:', err);
+    showAdminToast('حدث خطأ. حاول مرة أخرى.', 'error');
+  } finally {
+    if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-sign-in-alt"></i> دخول'; }
   }
 }
 
-function adminLogout() {
+function showLoginError(msg) {
+  const el = document.getElementById('login-error');
+  const ms = document.getElementById('login-error-msg');
+  if (el) el.style.display = 'flex';
+  if (ms) ms.textContent = msg || 'بيانات غير صحيحة';
+}
+
+async function adminLogout(reason = 'manual') {
+  Security.autoLogout.stop();
+  await Security.audit.log('LOGOUT', { reason });
   sessionStorage.removeItem('sc_admin');
+  sessionStorage.removeItem('sc_admin_role');
+  if (typeof supabase !== 'undefined' && supabase) {
+    try { await supabase.auth.signOut(); } catch {}
+  }
   showLoginPage();
 }
 
 function togglePwVis() {
   const input = document.getElementById('login-pw');
   const icon  = document.getElementById('pw-eye');
-  if (input.type === 'password') {
-    input.type = 'text';
-    icon.className = 'fas fa-eye-slash';
-  } else {
-    input.type = 'password';
-    icon.className = 'fas fa-eye';
-  }
+  if (input.type === 'password') { input.type = 'text';     icon.className = 'fas fa-eye-slash'; }
+  else                           { input.type = 'password'; icon.className = 'fas fa-eye'; }
+}
+
+function isLoggedIn() { return sessionStorage.getItem('sc_admin') === '1'; }
+
+function showLoginPage() {
+  document.getElementById('login-page').style.display = 'flex';
+  document.getElementById('dashboard').style.display  = 'none';
+  // Inject CSRF into login form
+  const csrf = document.getElementById('login-csrf');
+  if (csrf) csrf.value = Security.csrf.get();
+}
+
+function showDashboard() {
+  document.getElementById('login-page').style.display = 'none';
+  document.getElementById('dashboard').style.display  = 'flex';
+  loadAdminData();
 }
 
 // ═══════════════════════════════════════
@@ -83,29 +180,29 @@ async function loadAdminData() {
   mergeLocalAdminData();
   renderCurrentPage();
 
-  if (supabase) {
+  if (typeof supabase !== 'undefined' && supabase) {
     try { await refreshFromSupabase(); }
     catch(e) { console.warn('[Admin] Supabase load failed:', e.message); }
   } else {
-    const notice = document.getElementById('supabase-notice');
-    if (notice) notice.style.display = 'flex';
+    const n = document.getElementById('supabase-notice');
+    if (n) n.style.display = 'flex';
   }
 }
 
 function mergeLocalAdminData() {
   try {
-    const added      = JSON.parse(localStorage.getItem('sc_admin_products')     || '[]');
-    const edited     = JSON.parse(localStorage.getItem('sc_admin_edits')        || '{}');
-    const deleted    = JSON.parse(localStorage.getItem('sc_admin_deleted')      || '[]');
-    const addedCats  = JSON.parse(localStorage.getItem('sc_admin_cats')         || '[]');
-    const deletedCats= JSON.parse(localStorage.getItem('sc_admin_cats_deleted') || '[]');
+    const added       = JSON.parse(localStorage.getItem('sc_admin_products')     || '[]');
+    const edited      = JSON.parse(localStorage.getItem('sc_admin_edits')        || '{}');
+    const deleted     = JSON.parse(localStorage.getItem('sc_admin_deleted')      || '[]');
+    const addedCats   = JSON.parse(localStorage.getItem('sc_admin_cats')         || '[]');
+    const deletedCats = JSON.parse(localStorage.getItem('sc_admin_cats_deleted') || '[]');
 
     adminProducts   = adminProducts.filter(p => !deleted.includes(p.id));
     adminCategories = adminCategories.filter(c => !deletedCats.includes(c.id));
     adminProducts   = adminProducts.map(p => edited[p.id] ? { ...p, ...edited[p.id] } : p);
-    added.forEach(p => { if (!adminProducts.find(x => x.id === p.id)) adminProducts.push(p); });
+    added.forEach(p   => { if (!adminProducts.find(x => x.id === p.id))   adminProducts.push(p); });
     addedCats.forEach(c => { if (!adminCategories.find(x => x.id === c.id)) adminCategories.push(c); });
-  } catch(e) { console.warn('[Admin] mergeLocalAdminData:', e.message); }
+  } catch(e) { console.warn('[Admin] merge error:', e.message); }
 }
 
 async function refreshFromSupabase() {
@@ -134,7 +231,7 @@ async function refreshFromSupabase() {
 
 function loadLocalOrders() {
   try { return JSON.parse(localStorage.getItem('storycafe_orders') || '[]'); }
-  catch(e) { return []; }
+  catch { return []; }
 }
 
 // ═══════════════════════════════════════
@@ -142,14 +239,14 @@ function loadLocalOrders() {
 // ═══════════════════════════════════════
 function showPage(name, btnEl) {
   document.querySelectorAll('.page').forEach(p => p.style.display = 'none');
-  const pageEl = document.getElementById('page-' + name);
-  if (pageEl) pageEl.style.display = 'block';
+  const pg = document.getElementById('page-' + name);
+  if (pg) pg.style.display = 'block';
   document.querySelectorAll('.sb-link').forEach(b => b.classList.remove('active'));
   if (btnEl) btnEl.classList.add('active');
   currentPage = name;
   const titles = { overview:'نظرة عامة', products:'إدارة المنتجات', categories:'إدارة التصنيفات', orders:'الطلبات' };
-  const titleEl = document.getElementById('topbar-title');
-  if (titleEl) titleEl.textContent = titles[name] || name;
+  const t = document.getElementById('topbar-title');
+  if (t) t.textContent = titles[name] || name;
   renderCurrentPage();
 }
 
@@ -175,16 +272,16 @@ function renderOverview() {
   const rpl = document.getElementById('recent-products-list');
   if (rpl) {
     const recent = [...adminProducts].slice(-8).reverse();
+    const fb = 'https://images.unsplash.com/photo-1495474472287-4d71bcdd2085?w=80&q=80';
     rpl.innerHTML = recent.length === 0
       ? '<div class="list-empty">لا توجد منتجات بعد</div>'
       : recent.map(p => {
           const cat = adminCategories.find(c => c.id === p.categoryId);
-          const fb  = 'https://images.unsplash.com/photo-1495474472287-4d71bcdd2085?w=80&q=80';
           return `<div class="recent-item">
-            <img src="${p.image || fb}" alt="${p.name}" onerror="this.src='${fb}'">
+            <img src="${Security.sanitizeURL(p.image) || fb}" alt="" onerror="this.src='${fb}'">
             <div class="recent-info">
-              <span class="ri-name">${p.name}</span>
-              <span class="ri-cat">${cat ? cat.name : '—'}</span>
+              <span class="ri-name">${Security.sanitize(p.name)}</span>
+              <span class="ri-cat">${cat ? Security.sanitize(cat.name) : '—'}</span>
             </div>
             <span class="ri-price">${formatAdminPrice(p.price)}</span>
           </div>`;
@@ -197,10 +294,10 @@ function renderOverview() {
       ? '<div class="list-empty">لا توجد طلبات بعد</div>'
       : adminOrders.slice(0, 5).map(o => `<div class="recent-item">
           <div class="recent-info">
-            <span class="ri-name">طلب #${o.id || o.order_id || '—'}</span>
+            <span class="ri-name">طلب #${Security.sanitize(o.id || o.order_id || '—')}</span>
             <span class="ri-cat">${formatDate(o.created_at || o.date)}</span>
           </div>
-          <span class="order-status-badge status-${o.status || 'pending'}">${getStatusLabel(o.status || 'pending')}</span>
+          <span class="order-status-badge status-${Security.sanitizeAttr(o.status || 'pending')}">${Security.sanitize(getStatusLabel(o.status || 'pending'))}</span>
         </div>`).join('');
   }
 }
@@ -230,28 +327,27 @@ function renderProductsPage() {
   const fb = 'https://images.unsplash.com/photo-1495474472287-4d71bcdd2085?w=80&q=80';
   tbody.innerHTML = filteredProducts.map((p, i) => {
     const cat = adminCategories.find(c => c.id === p.categoryId);
-    const nm  = (p.name || '').replace(/'/g, '&#39;');
     return `<tr>
       <td>${i + 1}</td>
-      <td><img src="${p.image || fb}" alt="${p.name}" class="table-thumb" onerror="this.src='${fb}'"></td>
-      <td class="td-name">${p.name}</td>
-      <td>${cat ? `<span class="cat-chip">${cat.icon || ''} ${cat.name}</span>` : '<span class="cat-chip">—</span>'}</td>
+      <td><img src="${Security.sanitizeURL(p.image) || fb}" alt="" class="table-thumb" onerror="this.src='${fb}'"></td>
+      <td class="td-name">${Security.sanitize(p.name)}</td>
+      <td>${cat ? `<span class="cat-chip">${Security.sanitize(cat.icon || '')} ${Security.sanitize(cat.name)}</span>` : '<span class="cat-chip">—</span>'}</td>
       <td class="td-price">${formatAdminPrice(p.price)}</td>
       <td>
-        <button class="avail-toggle ${p.available !== false ? 'avail-yes' : 'avail-no'}" onclick="toggleAvailability(${p.id})">
+        <button class="avail-toggle ${p.available !== false ? 'avail-yes' : 'avail-no'}" onclick="toggleAvailability(${Number(p.id)})">
           ${p.available !== false ? '✓ متاح' : '✗ متوقف'}
         </button>
       </td>
       <td class="td-actions">
-        <button class="btn-icon btn-edit" onclick="openProductModal(${p.id})" title="تعديل"><i class="fas fa-edit"></i></button>
-        <button class="btn-icon btn-del" onclick="confirmDelete('product',${p.id},'${nm}')" title="حذف"><i class="fas fa-trash"></i></button>
+        <button class="btn-icon btn-edit" onclick="openProductModal(${Number(p.id)})" title="تعديل"><i class="fas fa-edit"></i></button>
+        <button class="btn-icon btn-del"  onclick="confirmDelete('product',${Number(p.id)},${JSON.stringify(Security.sanitize(p.name))})" title="حذف"><i class="fas fa-trash"></i></button>
       </td>
     </tr>`;
   }).join('');
 }
 
 function searchAdminProducts(query) {
-  const q = query.toLowerCase().trim();
+  const q = Security.sanitize(query).toLowerCase().trim();
   filteredProducts = q ? adminProducts.filter(p => p.name.toLowerCase().includes(q)) : [...adminProducts];
   renderProductsPage();
 }
@@ -265,7 +361,6 @@ function filterAdminByCategory(catId) {
 // PRODUCT MODAL
 // ═══════════════════════════════════════
 function openProductModal(productId) {
-  const modal = document.getElementById('product-modal');
   resetProductModal();
 
   const catSel = document.getElementById('pm-cat');
@@ -280,21 +375,18 @@ function openProductModal(productId) {
   if (productId) {
     const p = adminProducts.find(x => x.id === productId);
     if (!p) return;
-    document.getElementById('pm-title').textContent    = 'تعديل المنتج';
-    document.getElementById('pm-id').value             = p.id;
-    document.getElementById('pm-name').value           = p.name;
-    document.getElementById('pm-price').value          = p.price;
-    document.getElementById('pm-status').value         = p.available !== false ? 'true' : 'false';
+    document.getElementById('pm-title').textContent = 'تعديل المنتج';
+    document.getElementById('pm-id').value          = p.id;
+    document.getElementById('pm-name').value        = p.name;
+    document.getElementById('pm-price').value       = p.price;
+    document.getElementById('pm-status').value      = p.available !== false ? 'true' : 'false';
     catSel.value = p.categoryId || '';
-    if (p.image) {
-      document.getElementById('pm-image-url').value = p.image;
-      previewFromUrl(p.image, 'pm-preview');
-    }
+    if (p.image) { document.getElementById('pm-image-url').value = p.image; previewFromUrl(p.image, 'pm-preview'); }
   } else {
     document.getElementById('pm-title').textContent = 'منتج جديد';
   }
 
-  modal.style.display = 'flex';
+  document.getElementById('product-modal').style.display = 'flex';
   document.body.style.overflow = 'hidden';
 }
 
@@ -313,6 +405,7 @@ function resetProductModal() {
 
 async function saveProduct(e) {
   e.preventDefault();
+
   const id    = document.getElementById('pm-id').value;
   const name  = document.getElementById('pm-name').value.trim();
   const price = parseInt(document.getElementById('pm-price').value);
@@ -321,20 +414,27 @@ async function saveProduct(e) {
   const b64   = document.getElementById('pm-image-b64').value;
   let   imgUrl= document.getElementById('pm-image-url').value.trim();
 
-  if (!name || !price || !catId) {
-    showAdminToast('يرجى ملء جميع الحقول المطلوبة', 'error');
-    return;
-  }
+  // ── Validate inputs ───────────────────────
+  const nameV  = Security.validateInput(name,  { required: true, maxLength: 200, noScript: true });
+  const priceV = Security.validateInput(price, { required: true, numeric: true, min: 0, max: 100000000 });
+
+  if (!nameV.valid)  { showAdminToast(nameV.errors[0], 'error');  return; }
+  if (!priceV.valid) { showAdminToast(priceV.errors[0], 'error'); return; }
+  if (!catId)        { showAdminToast('اختر تصنيفاً', 'error');   return; }
+
+  // Sanitize URL
+  imgUrl = Security.sanitizeURL(imgUrl);
 
   if (b64 && !imgUrl) {
-    if (supabase) {
-      const uploaded = await uploadImageToStorage(b64, name);
-      if (uploaded) imgUrl = uploaded;
+    if (typeof supabase !== 'undefined' && supabase) {
+      const up = await uploadImageToStorage(b64, name);
+      if (up) imgUrl = up;
     }
     if (!imgUrl) imgUrl = b64;
   }
 
-  const productData = { name, price, categoryId: catId, available: avail, image: imgUrl };
+  const productData = { name: Security.sanitize(name), price, categoryId: catId, available: avail, image: imgUrl };
+
   if (id) await updateProduct(parseInt(id), productData);
   else    await addProduct(productData);
 
@@ -346,12 +446,13 @@ async function addProduct(data) {
   const newId   = Date.now();
   const product = { id: newId, ...data };
 
-  if (supabase) {
+  await Security.audit.log('PRODUCT_CREATED', { name: data.name, price: data.price, catId: data.categoryId });
+
+  if (typeof supabase !== 'undefined' && supabase) {
     try {
       const { error } = await supabase.from('products').insert([{
-        name_ar: data.name, name_en: data.name,
-        price: data.price, category_id: data.categoryId,
-        is_available: data.available, image_url: data.image,
+        name_ar: data.name, name_en: data.name, price: data.price,
+        category_id: data.categoryId, is_available: data.available, image_url: data.image,
       }]);
       if (error) throw error;
       showAdminToast(`تم إضافة "${data.name}" ✓`, 'success');
@@ -371,12 +472,13 @@ async function updateProduct(id, data) {
   if (idx === -1) return;
   adminProducts[idx] = { ...adminProducts[idx], ...data };
 
-  if (supabase) {
+  await Security.audit.log('PRODUCT_UPDATED', { id, name: data.name });
+
+  if (typeof supabase !== 'undefined' && supabase) {
     try {
       const { error } = await supabase.from('products').update({
-        name_ar: data.name, name_en: data.name,
-        price: data.price, category_id: data.categoryId,
-        is_available: data.available, image_url: data.image,
+        name_ar: data.name, name_en: data.name, price: data.price,
+        category_id: data.categoryId, is_available: data.available, image_url: data.image,
       }).eq('id', id);
       if (error) throw error;
       showAdminToast(`تم تحديث "${data.name}" ✓`, 'success');
@@ -397,13 +499,35 @@ async function toggleAvailability(id) {
   renderProductsPage();
 }
 
+async function deleteProduct(id) {
+  const p = adminProducts.find(x => x.id === id);
+  adminProducts = adminProducts.filter(x => x.id !== id);
+
+  await Security.audit.log('PRODUCT_DELETED', { id, name: p?.name });
+
+  if (typeof supabase !== 'undefined' && supabase) {
+    try {
+      const { error } = await supabase.from('products').delete().eq('id', id);
+      if (error) throw error;
+    } catch { markDeletedLocally('sc_admin_deleted', id); }
+  } else {
+    markDeletedLocally('sc_admin_deleted', id);
+    try {
+      const arr = JSON.parse(localStorage.getItem('sc_admin_products') || '[]');
+      localStorage.setItem('sc_admin_products', JSON.stringify(arr.filter(x => x.id !== id)));
+    } catch {}
+  }
+  showAdminToast('تم حذف المنتج ✓', 'success');
+  renderProductsPage();
+}
+
 function saveProductLocally(product) {
   try {
     const arr = JSON.parse(localStorage.getItem('sc_admin_products') || '[]');
     const idx = arr.findIndex(p => p.id === product.id);
     if (idx >= 0) arr[idx] = product; else arr.push(product);
     localStorage.setItem('sc_admin_products', JSON.stringify(arr));
-  } catch(e) {}
+  } catch {}
 }
 
 function saveEditLocally(id, data) {
@@ -411,25 +535,7 @@ function saveEditLocally(id, data) {
     const edits = JSON.parse(localStorage.getItem('sc_admin_edits') || '{}');
     edits[id] = { ...edits[id], ...data };
     localStorage.setItem('sc_admin_edits', JSON.stringify(edits));
-  } catch(e) {}
-}
-
-async function deleteProduct(id) {
-  adminProducts = adminProducts.filter(p => p.id !== id);
-  if (supabase) {
-    try {
-      const { error } = await supabase.from('products').delete().eq('id', id);
-      if (error) throw error;
-    } catch(err) { markDeletedLocally('sc_admin_deleted', id); }
-  } else {
-    markDeletedLocally('sc_admin_deleted', id);
-    try {
-      const arr = JSON.parse(localStorage.getItem('sc_admin_products') || '[]');
-      localStorage.setItem('sc_admin_products', JSON.stringify(arr.filter(p => p.id !== id)));
-    } catch(e) {}
-  }
-  showAdminToast('تم حذف المنتج ✓', 'success');
-  renderProductsPage();
+  } catch {}
 }
 
 function markDeletedLocally(key, id) {
@@ -437,11 +543,11 @@ function markDeletedLocally(key, id) {
     const arr = JSON.parse(localStorage.getItem(key) || '[]');
     if (!arr.includes(id)) arr.push(id);
     localStorage.setItem(key, JSON.stringify(arr));
-  } catch(e) {}
+  } catch {}
 }
 
 // ═══════════════════════════════════════
-// IMAGE UPLOAD
+// IMAGE UPLOAD (Secured)
 // ═══════════════════════════════════════
 function switchImgTab(type) {
   imgTabMode = type;
@@ -462,22 +568,35 @@ function switchImgTabCat(type) {
 function previewFromUrl(url, previewId) {
   const wrap    = document.getElementById(previewId + '-wrap');
   const preview = document.getElementById(previewId);
-  if (!url || !preview) { if (wrap) wrap.style.display = 'none'; return; }
-  preview.src = url;
+  const safeUrl = Security.sanitizeURL(url);
+  if (!safeUrl || !preview) { if (wrap) wrap.style.display = 'none'; return; }
+  preview.src = safeUrl;
   if (wrap) wrap.style.display = 'block';
   preview.onerror = () => { if (wrap) wrap.style.display = 'none'; };
 }
 
-function handleFileUpload(input, previewId, b64InputId) {
+async function handleFileUpload(input, previewId, b64InputId) {
   const file = input.files && input.files[0];
   if (!file) return;
-  if (file.size > 5 * 1024 * 1024) {
-    showAdminToast('حجم الصورة يجب أن لا يتجاوز 5MB', 'error');
+
+  // ── Security validation ───────────────────
+  const check = Security.validateFile(file);
+  if (!check.valid) {
+    showAdminToast(check.errors[0], 'error');
     input.value = '';
     return;
   }
+
+  // Verify magic bytes (real file type)
+  const magic = await Security.verifyMagicBytes(file);
+  if (!magic.valid) {
+    showAdminToast('الملف لا يبدو صورة حقيقية. الرجاء اختيار ملف JPG أو PNG أو WEBP', 'error');
+    input.value = '';
+    return;
+  }
+
   const reader = new FileReader();
-  reader.onload = (ev) => {
+  reader.onload = ev => {
     const b64     = ev.target.result;
     const preview = document.getElementById(previewId);
     const wrap    = document.getElementById(previewId + '-wrap');
@@ -490,16 +609,14 @@ function handleFileUpload(input, previewId, b64InputId) {
 }
 
 function removeImgPreview(prefix) {
-  const wrap   = document.getElementById(prefix + '-preview-wrap');
-  const preview= document.getElementById(prefix + '-preview');
-  const urlIn  = document.getElementById(prefix + '-image-url');
-  const b64In  = document.getElementById(prefix + '-image-b64');
-  const fileIn = document.getElementById(prefix + '-image-file');
-  if (wrap)    wrap.style.display = 'none';
-  if (preview) preview.src = '';
-  if (urlIn)   urlIn.value = '';
-  if (b64In)   b64In.value = '';
-  if (fileIn)  fileIn.value = '';
+  ['image-url','image-b64','image-file'].forEach(s => {
+    const el = document.getElementById(prefix + '-' + s);
+    if (el) el.value = '';
+  });
+  const wrap = document.getElementById(prefix + '-preview-wrap');
+  const prev = document.getElementById(prefix + '-preview');
+  if (wrap) wrap.style.display = 'none';
+  if (prev) prev.src = '';
 }
 
 async function uploadImageToStorage(base64, name) {
@@ -507,19 +624,21 @@ async function uploadImageToStorage(base64, name) {
   try {
     const blob  = base64ToBlob(base64);
     const ext   = blob.type.split('/')[1] || 'jpg';
-    const fname = `products/${Date.now()}-${name.replace(/\s+/g, '-')}.${ext}`;
+    // Sanitize filename
+    const safeName = name.replace(/[^a-zA-Z0-9؀-ۿ_-]/g, '_').substring(0, 50);
+    const fname = `products/${Date.now()}-${safeName}.${ext}`;
     const { data, error } = await supabase.storage.from('product-images').upload(fname, blob, { contentType: blob.type, upsert: false });
     if (error) return null;
     const { data: { publicUrl } } = supabase.storage.from('product-images').getPublicUrl(data.path);
     return publicUrl;
-  } catch(e) { return null; }
+  } catch { return null; }
 }
 
-function base64ToBlob(base64) {
-  const [header, data] = base64.split(',');
-  const mime  = header.match(/:(.*?);/)[1];
-  const bytes = atob(data);
-  const arr   = new Uint8Array(bytes.length);
+function base64ToBlob(b64) {
+  const [h, d] = b64.split(',');
+  const mime   = h.match(/:(.*?);/)[1];
+  const bytes  = atob(d);
+  const arr    = new Uint8Array(bytes.length);
   for (let i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i);
   return new Blob([arr], { type: mime });
 }
@@ -539,19 +658,18 @@ function renderCategoriesPage() {
   const fb = 'https://images.unsplash.com/photo-1495474472287-4d71bcdd2085?w=400&q=80';
   grid.innerHTML = adminCategories.map(c => {
     const count = adminProducts.filter(p => p.categoryId === c.id).length;
-    const nm    = (c.name || '').replace(/'/g, '&#39;');
     return `<div class="cat-admin-card">
       <div class="cat-admin-img-wrap">
-        <img src="${c.image || fb}" alt="${c.name}" onerror="this.src='${fb}'">
+        <img src="${Security.sanitizeURL(c.image) || fb}" alt="" onerror="this.src='${fb}'">
         <div class="cat-admin-overlay">
-          <button class="btn-icon btn-edit" onclick="openCatModal(${c.id})" title="تعديل"><i class="fas fa-edit"></i></button>
-          <button class="btn-icon btn-del" onclick="confirmDelete('cat',${c.id},'${nm}')" title="حذف"><i class="fas fa-trash"></i></button>
+          <button class="btn-icon btn-edit" onclick="openCatModal(${Number(c.id)})" title="تعديل"><i class="fas fa-edit"></i></button>
+          <button class="btn-icon btn-del"  onclick="confirmDelete('cat',${Number(c.id)},${JSON.stringify(Security.sanitize(c.name))})" title="حذف"><i class="fas fa-trash"></i></button>
         </div>
       </div>
       <div class="cat-admin-info">
-        <span class="cat-icon">${c.icon || '☕'}</span>
+        <span class="cat-icon">${Security.sanitize(c.icon || '☕')}</span>
         <div>
-          <div class="cat-name">${c.name}</div>
+          <div class="cat-name">${Security.sanitize(c.name)}</div>
           <div class="cat-count">${count} منتج</div>
         </div>
       </div>
@@ -563,27 +681,21 @@ function renderCategoriesPage() {
 // CATEGORY MODAL
 // ═══════════════════════════════════════
 function openCatModal(catId) {
-  const modal = document.getElementById('cat-modal');
   resetCatModal();
-
   if (catId) {
     const c = adminCategories.find(x => x.id === catId);
     if (!c) return;
-    document.getElementById('cm-title').textContent    = 'تعديل التصنيف';
-    document.getElementById('cm-id').value             = c.id;
-    document.getElementById('cm-name-ar').value        = c.name || '';
-    document.getElementById('cm-name-en').value        = c.nameEn || '';
-    document.getElementById('cm-icon').value           = c.icon || '';
-    document.getElementById('cm-order').value          = c.displayOrder || '';
-    if (c.image) {
-      document.getElementById('cm-image-url').value = c.image;
-      previewFromUrl(c.image, 'cm-preview');
-    }
+    document.getElementById('cm-title').textContent = 'تعديل التصنيف';
+    document.getElementById('cm-id').value          = c.id;
+    document.getElementById('cm-name-ar').value     = c.name || '';
+    document.getElementById('cm-name-en').value     = c.nameEn || '';
+    document.getElementById('cm-icon').value        = c.icon || '';
+    document.getElementById('cm-order').value       = c.displayOrder || '';
+    if (c.image) { document.getElementById('cm-image-url').value = c.image; previewFromUrl(c.image, 'cm-preview'); }
   } else {
     document.getElementById('cm-title').textContent = 'تصنيف جديد';
   }
-
-  modal.style.display = 'flex';
+  document.getElementById('cat-modal').style.display = 'flex';
   document.body.style.overflow = 'hidden';
 }
 
@@ -600,6 +712,7 @@ function resetCatModal() {
 
 async function saveCat(e) {
   e.preventDefault();
+
   const id     = document.getElementById('cm-id').value;
   const nameAr = document.getElementById('cm-name-ar').value.trim();
   const nameEn = document.getElementById('cm-name-en').value.trim();
@@ -608,17 +721,20 @@ async function saveCat(e) {
   const b64    = document.getElementById('cm-image-b64').value;
   let   imgUrl = document.getElementById('cm-image-url').value.trim();
 
-  if (!nameAr) { showAdminToast('يرجى إدخال اسم التصنيف', 'error'); return; }
+  const v = Security.validateInput(nameAr, { required: true, maxLength: 100, noScript: true });
+  if (!v.valid) { showAdminToast(v.errors[0], 'error'); return; }
+
+  imgUrl = Security.sanitizeURL(imgUrl);
 
   if (b64 && !imgUrl) {
-    if (supabase) {
-      const uploaded = await uploadImageToStorage(b64, nameAr);
-      if (uploaded) imgUrl = uploaded;
+    if (typeof supabase !== 'undefined' && supabase) {
+      const up = await uploadImageToStorage(b64, nameAr);
+      if (up) imgUrl = up;
     }
     if (!imgUrl) imgUrl = b64;
   }
 
-  const catData = { name: nameAr, nameEn, icon, image: imgUrl, displayOrder: order };
+  const catData = { name: Security.sanitize(nameAr), nameEn: Security.sanitize(nameEn), icon: Security.sanitize(icon), image: imgUrl, displayOrder: order };
   if (id) await updateCategory(parseInt(id), catData);
   else    await addCategory(catData);
 
@@ -630,15 +746,16 @@ async function addCategory(data) {
   const newId = Date.now();
   const cat   = { id: newId, ...data };
 
-  if (supabase) {
+  await Security.audit.log('CATEGORY_CREATED', { name: data.name });
+
+  if (typeof supabase !== 'undefined' && supabase) {
     try {
       const { error } = await supabase.from('categories').insert([{
-        name_ar: data.name, name_en: data.nameEn,
-        icon: data.icon, image_url: data.image, display_order: data.displayOrder,
+        name_ar: data.name, name_en: data.nameEn, icon: data.icon, image_url: data.image, display_order: data.displayOrder,
       }]);
       if (error) throw error;
       showAdminToast(`تم إضافة "${data.name}" ✓`, 'success');
-    } catch(err) {
+    } catch {
       showAdminToast('Supabase فشل، حُفظ محلياً', 'warning');
       saveCatLocally(cat);
     }
@@ -654,18 +771,16 @@ async function updateCategory(id, data) {
   if (idx === -1) return;
   adminCategories[idx] = { ...adminCategories[idx], ...data };
 
-  if (supabase) {
+  await Security.audit.log('CATEGORY_UPDATED', { id, name: data.name });
+
+  if (typeof supabase !== 'undefined' && supabase) {
     try {
       const { error } = await supabase.from('categories').update({
-        name_ar: data.name, name_en: data.nameEn,
-        icon: data.icon, image_url: data.image, display_order: data.displayOrder,
+        name_ar: data.name, name_en: data.nameEn, icon: data.icon, image_url: data.image, display_order: data.displayOrder,
       }).eq('id', id);
       if (error) throw error;
       showAdminToast(`تم تحديث "${data.name}" ✓`, 'success');
-    } catch(err) {
-      showAdminToast('Supabase فشل، حُفظ محلياً', 'warning');
-      saveCatEditLocally(id, data);
-    }
+    } catch { saveCatEditLocally(id, data); }
   } else {
     saveCatEditLocally(id, data);
     showAdminToast(`تم تحديث "${data.name}" محلياً ✓`, 'success');
@@ -673,18 +788,22 @@ async function updateCategory(id, data) {
 }
 
 async function deleteCategory(id) {
-  adminCategories = adminCategories.filter(c => c.id !== id);
-  if (supabase) {
+  const c = adminCategories.find(x => x.id === id);
+  adminCategories = adminCategories.filter(x => x.id !== id);
+
+  await Security.audit.log('CATEGORY_DELETED', { id, name: c?.name });
+
+  if (typeof supabase !== 'undefined' && supabase) {
     try {
       const { error } = await supabase.from('categories').delete().eq('id', id);
       if (error) throw error;
-    } catch(err) { markDeletedLocally('sc_admin_cats_deleted', id); }
+    } catch { markDeletedLocally('sc_admin_cats_deleted', id); }
   } else {
     markDeletedLocally('sc_admin_cats_deleted', id);
     try {
       const cats = JSON.parse(localStorage.getItem('sc_admin_cats') || '[]');
-      localStorage.setItem('sc_admin_cats', JSON.stringify(cats.filter(c => c.id !== id)));
-    } catch(e) {}
+      localStorage.setItem('sc_admin_cats', JSON.stringify(cats.filter(x => x.id !== id)));
+    } catch {}
   }
   showAdminToast('تم حذف التصنيف ✓', 'success');
   renderCategoriesPage();
@@ -696,7 +815,7 @@ function saveCatLocally(cat) {
     const idx = arr.findIndex(c => c.id === cat.id);
     if (idx >= 0) arr[idx] = cat; else arr.push(cat);
     localStorage.setItem('sc_admin_cats', JSON.stringify(arr));
-  } catch(e) {}
+  } catch {}
 }
 
 function saveCatEditLocally(id, data) {
@@ -704,32 +823,28 @@ function saveCatEditLocally(id, data) {
     const cats = JSON.parse(localStorage.getItem('sc_admin_cats') || '[]');
     const idx  = cats.findIndex(c => c.id === id);
     if (idx >= 0) { cats[idx] = { ...cats[idx], ...data }; localStorage.setItem('sc_admin_cats', JSON.stringify(cats)); }
-  } catch(e) {}
+  } catch {}
 }
 
 // ═══════════════════════════════════════
-// ORDERS PAGE
+// ORDERS
 // ═══════════════════════════════════════
 function renderOrdersPage(statusFilter) {
   const tbody = document.getElementById('orders-tbody');
   if (!tbody) return;
-
-  let orders = adminOrders;
-  if (statusFilter) orders = orders.filter(o => (o.status || 'pending') === statusFilter);
-
+  let orders = statusFilter ? adminOrders.filter(o => (o.status || 'pending') === statusFilter) : adminOrders;
   if (orders.length === 0) {
     tbody.innerHTML = '<tr><td colspan="6" class="table-empty">لا توجد طلبات</td></tr>';
     return;
   }
-
   tbody.innerHTML = orders.map(o => `<tr>
-    <td>#${o.id || o.order_id || '—'}</td>
+    <td>#${Security.sanitize(o.id || o.order_id || '—')}</td>
     <td>${formatDate(o.created_at || o.date)}</td>
-    <td class="td-name">${formatOrderItems(o.items)}</td>
+    <td class="td-name">${Security.sanitize(formatOrderItems(o.items))}</td>
     <td>${formatAdminPrice(o.total || o.total_amount || 0)}</td>
-    <td><span class="order-status-badge status-${o.status || 'pending'}">${getStatusLabel(o.status || 'pending')}</span></td>
+    <td><span class="order-status-badge status-${Security.sanitizeAttr(o.status || 'pending')}">${Security.sanitize(getStatusLabel(o.status || 'pending'))}</span></td>
     <td class="td-actions">
-      <select class="status-sel" onchange="updateOrderStatus(${o.id || o.order_id || 0}, this.value)">
+      <select class="status-sel" onchange="updateOrderStatus(${Number(o.id || o.order_id || 0)}, this.value)">
         ${['pending','confirmed','preparing','ready','delivered','cancelled'].map(s =>
           `<option value="${s}" ${(o.status||'pending')===s?'selected':''}>${getStatusLabel(s)}</option>`
         ).join('')}
@@ -741,32 +856,37 @@ function renderOrdersPage(statusFilter) {
 function filterOrdersByStatus(val) { renderOrdersPage(val || undefined); }
 
 function updateOrderStatus(id, status) {
+  const VALID_STATUSES = ['pending','confirmed','preparing','ready','delivered','cancelled'];
+  if (!VALID_STATUSES.includes(status)) return; // reject invalid values
   const o = adminOrders.find(x => (x.id || x.order_id) === id);
   if (o) o.status = status;
-  if (supabase) supabase.from('orders').update({ status }).eq('id', id).catch(() => {});
+  if (typeof supabase !== 'undefined' && supabase)
+    supabase.from('orders').update({ status }).eq('id', id).catch(() => {});
+  Security.audit.log('ORDER_STATUS_CHANGED', { id, status });
   showAdminToast('تم تحديث حالة الطلب ✓', 'success');
 }
 
 function formatOrderItems(items) {
   if (!items) return '—';
-  if (typeof items === 'string') { try { items = JSON.parse(items); } catch(e) { return items; } }
-  if (Array.isArray(items)) return items.slice(0,2).map(i => `${i.name} ×${i.qty||i.quantity||1}`).join('، ') + (items.length > 2 ? '...' : '');
+  if (typeof items === 'string') { try { items = JSON.parse(items); } catch { return Security.sanitize(items); } }
+  if (Array.isArray(items)) return items.slice(0,2).map(i => `${Security.sanitize(i.name)} ×${Number(i.qty||i.quantity||1)}`).join('، ') + (items.length > 2 ? '...' : '');
   return '—';
 }
 
 // ═══════════════════════════════════════
-// CONFIRM DELETE DIALOG
+// CONFIRM DELETE
 // ═══════════════════════════════════════
 function confirmDelete(type, id, name) {
   const modal = document.getElementById('confirm-modal');
   const msg   = document.getElementById('confirm-msg');
   const btn   = document.getElementById('confirm-ok-btn');
   if (!modal) return;
-  msg.textContent = `هل أنت متأكد من حذف "${name}"؟ لا يمكن التراجع عن هذا الإجراء.`;
+  // name is already sanitized before being passed here
+  msg.textContent = `هل أنت متأكد من حذف "${name}"؟ لا يمكن التراجع.`;
   pendingConfirmFn = async () => {
     closeModal('confirm-modal');
-    if (type === 'product') await deleteProduct(id);
-    else if (type === 'cat') await deleteCategory(id);
+    if (type === 'product') await deleteProduct(Number(id));
+    else if (type === 'cat') await deleteCategory(Number(id));
   };
   btn.onclick = () => pendingConfirmFn && pendingConfirmFn();
   modal.style.display = 'flex';
@@ -781,14 +901,8 @@ function closeModal(id) {
   if (m) m.style.display = 'none';
   document.body.style.overflow = '';
 }
-
-function closeModalOnBg(e, id) {
-  if (e.target === e.currentTarget) closeModal(id);
-}
-
-function toggleSidebar() {
-  document.getElementById('sidebar')?.classList.toggle('open');
-}
+function closeModalOnBg(e, id) { if (e.target === e.currentTarget) closeModal(id); }
+function toggleSidebar() { document.getElementById('sidebar')?.classList.toggle('open'); }
 
 // ═══════════════════════════════════════
 // TOAST
@@ -799,10 +913,11 @@ function showAdminToast(msg, type = 'success') {
   const icons = { success:'fas fa-check-circle', error:'fas fa-exclamation-circle', warning:'fas fa-exclamation-triangle' };
   const toast = document.createElement('div');
   toast.className = `admin-toast toast-${type}`;
-  toast.innerHTML = `<i class="${icons[type] || icons.success}"></i><span>${msg}</span>`;
+  // msg from our code is safe; sanitize for defense
+  toast.innerHTML = `<i class="${icons[type] || icons.success}"></i><span>${Security.sanitize(msg)}</span>`;
   container.appendChild(toast);
   requestAnimationFrame(() => toast.classList.add('show'));
-  setTimeout(() => { toast.classList.remove('show'); setTimeout(() => toast.remove(), 400); }, 3000);
+  setTimeout(() => { toast.classList.remove('show'); setTimeout(() => toast.remove(), 400); }, 3200);
 }
 
 // ═══════════════════════════════════════
@@ -812,15 +927,13 @@ function formatAdminPrice(n) {
   if (!n && n !== 0) return '—';
   return Number(n).toLocaleString('ar-LB') + ' ل.ل';
 }
-
 function formatDate(d) {
   if (!d) return '—';
-  return new Date(d).toLocaleDateString('ar-LB', { year:'numeric', month:'short', day:'numeric' });
+  try { return new Date(d).toLocaleDateString('ar-LB', { year:'numeric', month:'short', day:'numeric' }); }
+  catch { return '—'; }
 }
-
 function getStatusLabel(s) {
   const map = { pending:'قيد الانتظار', confirmed:'مؤكد', preparing:'قيد التحضير', ready:'جاهز', delivered:'تم التسليم', cancelled:'ملغي' };
   return map[s] || s;
 }
-
 function formatPrice(n) { return formatAdminPrice(n); }

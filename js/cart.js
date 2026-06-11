@@ -122,18 +122,23 @@ function renderCartDrawer() {
   if (footer) footer.style.display = 'block';
   if (totalEl) totalEl.textContent = formatPrice(getCartTotal());
 
+  // Sanitize all dynamic content before injecting into innerHTML
+  const san = (v) => (typeof Security !== 'undefined') ? Security.sanitize(v) : String(v ?? '');
+  const sanURL = (v) => (typeof Security !== 'undefined') ? Security.sanitizeURL(v) : String(v ?? '');
+  const fb = 'https://images.unsplash.com/photo-1495474472287-4d71bcdd2085?w=200&q=60';
+
   list.innerHTML = cart.map(item => `
     <div class="cart-item">
-      <img class="cart-item-img" src="${item.image}" alt="${item.name}" onerror="this.src='https://images.unsplash.com/photo-1495474472287-4d71bcdd2085?w=200&q=60'" loading="lazy">
+      <img class="cart-item-img" src="${sanURL(item.image) || fb}" alt="" onerror="this.src='${fb}'" loading="lazy">
       <div class="cart-item-info">
-        <div class="cart-item-name">${item.name}</div>
+        <div class="cart-item-name">${san(item.name)}</div>
         <div class="cart-item-price">${formatPrice(item.price * item.qty)}</div>
       </div>
       <div class="cart-item-controls">
-        <button class="ci-qty-btn" onclick="updateQty(${item.id}, -1)" aria-label="تقليل">−</button>
-        <span class="ci-qty">${item.qty}</span>
-        <button class="ci-qty-btn" onclick="updateQty(${item.id}, 1)" aria-label="زيادة">+</button>
-        <button class="ci-remove" onclick="removeFromCart(${item.id})" aria-label="حذف"><i class="fas fa-trash"></i></button>
+        <button class="ci-qty-btn" onclick="updateQty(${Number(item.id)}, -1)" aria-label="تقليل">−</button>
+        <span class="ci-qty">${Number(item.qty)}</span>
+        <button class="ci-qty-btn" onclick="updateQty(${Number(item.id)}, 1)" aria-label="زيادة">+</button>
+        <button class="ci-remove" onclick="removeFromCart(${Number(item.id)})" aria-label="حذف"><i class="fas fa-trash"></i></button>
       </div>
     </div>
   `).join('');
@@ -144,6 +149,14 @@ function sendWhatsAppOrder() {
   if (cart.length === 0) {
     showToast('<i class="fas fa-exclamation-circle"></i> السلة فارغة!', 'error');
     return;
+  }
+  // Rate limit: max 3 orders per 5 minutes
+  if (typeof Security !== 'undefined') {
+    const rl = Security.rateLimit('whatsapp_order', 3, 5 * 60 * 1000);
+    if (!rl.allowed) {
+      showToast(`<i class="fas fa-clock"></i> يرجى الانتظار ${rl.retryAfter} ثانية قبل إرسال طلب جديد`, 'error');
+      return;
+    }
   }
   const lines = cart.map(i =>
     `• ${i.name} × ${i.qty} = ${formatPrice(i.price * i.qty)}`

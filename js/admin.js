@@ -52,7 +52,7 @@ function adminLogin(e) {
   }
 
   const password = (document.getElementById('login-pw')?.value || '').trim();
-  const correct  = (typeof CONFIG !== 'undefined' && CONFIG.adminPassword) ? CONFIG.adminPassword : 'storycafe2024';
+  const correct  = (typeof CONFIG !== 'undefined' && CONFIG.adminPassword) ? CONFIG.adminPassword : 'ash2oush#$%543';
 
   if (password === correct) {
     Security.bruteForce.reset();

@@ -2,96 +2,83 @@
 // StoryCafe — Main Application
 // =============================================
 
-let allProducts = [];
-let allCategories = [];
+let allProducts    = [];
+let allCategories  = [];
 let activeCategory = 'all';
-let searchQuery = '';
-let searchTimer = null;
+let searchQuery    = '';
+let searchTimer    = null;
 
-// ---- Init ----
-document.addEventListener('DOMContentLoaded', async () => {
-  // Clear old cache versions
-  localStorage.removeItem('storycafe_menu_cache');
+// ---- Boot (scripts are at bottom of body, DOM is already ready) ----
+(function boot() {
+  try { localStorage.removeItem('storycafe_menu_cache'); } catch(e) {}
+
+  // 1. Load local data immediately — always works, no network needed
+  allCategories = CATEGORIES_LOCAL;
+  allProducts   = PRODUCTS_LOCAL;
+
+  // 2. Render everything synchronously
+  renderCategoryFilters();
+  renderCategoriesSection();
+  renderProducts();
+  updateCartUI();
+
+  // 3. UI setup
   initLoadingScreen();
   initNavbar();
   initScrollReveal();
   initHeroParallax();
 
-  const data = await loadMenuData();
-  allCategories = data.categories;
-  allProducts = data.products;
-
-  renderCategoryFilters();
-  renderCategoriesSection();
-  renderProducts();
-  updateCartUI();
-});
+  // 4. Try Supabase in background (won't block rendering)
+  if (typeof supabase !== 'undefined' && supabase) {
+    loadFromSupabase();
+  }
+})();
 
 // ---- Loading Screen ----
 function initLoadingScreen() {
-  setTimeout(() => {
-    const screen = document.getElementById('loading-screen');
-    if (screen) screen.classList.add('hidden');
-  }, 2200);
+  const screen = document.getElementById('loading-screen');
+  if (!screen) return;
+  setTimeout(() => screen.classList.add('hidden'), 1800);
 }
 
-// ---- Data Loading ----
-async function loadMenuData() {
-  // Always start with local data so products show instantly
-  const local = { categories: CATEGORIES_LOCAL, products: PRODUCTS_LOCAL };
+// ---- Supabase (background refresh) ----
+async function loadFromSupabase() {
+  try {
+    const [{ data: cats, error: e1 }, { data: prods, error: e2 }] = await Promise.all([
+      supabase.from('categories').select('*').order('display_order'),
+      supabase.from('products').select('*').eq('is_available', true).order('display_order'),
+    ]);
+    if (e1 || e2 || !cats || !prods || cats.length === 0) return;
 
-  if (supabase) {
-    try {
-      const [{ data: cats }, { data: prods }] = await Promise.all([
-        supabase.from('categories').select('*').order('display_order'),
-        supabase.from('products').select('*').eq('is_available', true).order('display_order'),
-      ]);
-      if (cats && prods && cats.length > 0) {
-        return {
-          categories: cats.map(c => ({
-            id: c.id, name: c.name_ar, nameEn: c.name_en,
-            icon: c.icon, image: c.image_url,
-            count: prods.filter(p => p.category_id === c.id).length,
-          })),
-          products: prods.map(p => ({
-            id: p.id, categoryId: p.category_id,
-            name: p.name_en || p.name_ar,
-            price: p.price, image: p.image_url,
-            available: p.is_available,
-          })),
-        };
-      }
-    } catch (e) {
-      console.warn('[StoryCafe] Supabase load failed, using local data');
-    }
+    allCategories = cats.map(c => ({
+      id: c.id, name: c.name_ar, nameEn: c.name_en,
+      icon: c.icon, image: c.image_url,
+      count: prods.filter(p => p.category_id === c.id).length,
+    }));
+    allProducts = prods.map(p => ({
+      id: p.id, categoryId: p.category_id,
+      name: p.name_en || p.name_ar,
+      price: p.price, image: p.image_url,
+      available: p.is_available,
+    }));
+
+    // Re-render with Supabase data
+    renderCategoryFilters();
+    renderCategoriesSection();
+    renderProducts();
+    updateCartUI();
+  } catch (e) {
+    console.warn('[StoryCafe] Supabase load failed, keeping local data');
   }
-
-  return local;
-}
-
-function getCachedData() {
-  try {
-    const raw = localStorage.getItem(CONFIG.cacheKey);
-    if (!raw) return null;
-    const { data, ts } = JSON.parse(raw);
-    if (Date.now() - ts > CONFIG.cacheTTL) return null;
-    return data;
-  } catch { return null; }
-}
-
-function setCachedData(data) {
-  try {
-    localStorage.setItem(CONFIG.cacheKey, JSON.stringify({ data, ts: Date.now() }));
-  } catch {}
 }
 
 // ---- Navbar ----
 function initNavbar() {
-  const navbar = document.getElementById('navbar');
+  const navbar   = document.getElementById('navbar');
   const sections = document.querySelectorAll('section[id]');
 
   window.addEventListener('scroll', () => {
-    navbar.classList.toggle('scrolled', window.scrollY > 60);
+    if (navbar) navbar.classList.toggle('scrolled', window.scrollY > 60);
     highlightNavLink(sections);
   }, { passive: true });
 
@@ -100,7 +87,6 @@ function initNavbar() {
       e.preventDefault();
       const target = document.querySelector(a.getAttribute('href'));
       if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      // close mobile menu
       document.getElementById('nav-links')?.classList.remove('open');
       document.getElementById('hamburger')?.classList.remove('open');
     });
@@ -109,19 +95,15 @@ function initNavbar() {
 
 function highlightNavLink(sections) {
   let current = '';
-  sections.forEach(s => {
-    if (window.scrollY >= s.offsetTop - 120) current = s.id;
-  });
+  sections.forEach(s => { if (window.scrollY >= s.offsetTop - 120) current = s.id; });
   document.querySelectorAll('.nav-link').forEach(a => {
     a.classList.toggle('active', a.getAttribute('href') === `#${current}`);
   });
 }
 
 function toggleMobileMenu() {
-  const links = document.getElementById('nav-links');
-  const btn = document.getElementById('hamburger');
-  links?.classList.toggle('open');
-  btn?.classList.toggle('open');
+  document.getElementById('nav-links')?.classList.toggle('open');
+  document.getElementById('hamburger')?.classList.toggle('open');
 }
 
 // ---- Hero Parallax ----
@@ -129,24 +111,22 @@ function initHeroParallax() {
   const el = document.getElementById('hero-parallax');
   if (!el) return;
   window.addEventListener('scroll', () => {
-    el.style.transform = `translateY(${window.scrollY * 0.4}px)`;
+    el.style.transform = `translateY(${window.scrollY * 0.35}px)`;
   }, { passive: true });
 }
 
 // ---- Scroll Reveal ----
 function initScrollReveal() {
+  if (!('IntersectionObserver' in window)) {
+    document.querySelectorAll('.reveal-up,.reveal-left,.reveal-right').forEach(el => el.classList.add('revealed'));
+    return;
+  }
   const observer = new IntersectionObserver((entries) => {
     entries.forEach(e => {
-      if (e.isIntersecting) {
-        e.target.classList.add('revealed');
-        observer.unobserve(e.target);
-      }
+      if (e.isIntersecting) { e.target.classList.add('revealed'); observer.unobserve(e.target); }
     });
-  }, { threshold: 0.12 });
-
-  document.querySelectorAll('.reveal-up, .reveal-left, .reveal-right').forEach(el => {
-    observer.observe(el);
-  });
+  }, { threshold: 0.1 });
+  document.querySelectorAll('.reveal-up,.reveal-left,.reveal-right').forEach(el => observer.observe(el));
 }
 
 // ---- Render Categories Section ----
@@ -161,9 +141,7 @@ function renderCategoriesSection() {
         <div class="category-name">${cat.name}</div>
         <div class="category-count">${cat.count} منتج</div>
       </div>
-    </div>
-  `).join('');
-  // re-observe new elements
+    </div>`).join('');
   setTimeout(() => initScrollReveal(), 50);
 }
 
@@ -171,7 +149,8 @@ function renderCategoriesSection() {
 function renderCategoryFilters() {
   const container = document.getElementById('menu-filters');
   if (!container) return;
-  const existing = container.querySelector('[data-cat="all"]');
+  // Remove old category buttons (keep the "all" button)
+  container.querySelectorAll('.filter-btn:not([data-cat="all"])').forEach(b => b.remove());
   allCategories.forEach(cat => {
     const btn = document.createElement('button');
     btn.className = 'filter-btn';
@@ -182,15 +161,14 @@ function renderCategoryFilters() {
   });
 }
 
-// ---- Filter Products ----
+// ---- Filter ----
 function filterByCategory(catId, btnEl) {
   activeCategory = catId;
   document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
   if (btnEl) {
     btnEl.classList.add('active');
   } else {
-    const b = document.querySelector(`[data-cat="${catId}"]`);
-    if (b) b.classList.add('active');
+    document.querySelector(`[data-cat="${catId}"]`)?.classList.add('active');
   }
   renderProducts();
 }
@@ -202,30 +180,27 @@ function debounceSearch(val) {
   searchTimer = setTimeout(() => {
     searchQuery = val.trim().toLowerCase();
     renderProducts();
-  }, CONFIG.searchDebounce);
+  }, 300);
 }
 
 function clearSearch() {
   searchQuery = '';
   const input = document.getElementById('search-input');
   if (input) input.value = '';
-  document.getElementById('search-clear').style.display = 'none';
+  const clearBtn = document.getElementById('search-clear');
+  if (clearBtn) clearBtn.style.display = 'none';
   renderProducts();
 }
 
 // ---- Render Products ----
 function renderProducts() {
-  const grid = document.getElementById('menu-grid');
+  const grid  = document.getElementById('menu-grid');
   const empty = document.getElementById('menu-empty');
   if (!grid) return;
 
   let filtered = allProducts;
-  if (activeCategory !== 'all') {
-    filtered = filtered.filter(p => p.categoryId == activeCategory);
-  }
-  if (searchQuery) {
-    filtered = filtered.filter(p => p.name.toLowerCase().includes(searchQuery));
-  }
+  if (activeCategory !== 'all') filtered = filtered.filter(p => p.categoryId == activeCategory);
+  if (searchQuery)              filtered = filtered.filter(p => p.name.toLowerCase().includes(searchQuery));
 
   if (filtered.length === 0) {
     grid.innerHTML = '';
@@ -237,10 +212,10 @@ function renderProducts() {
   grid.innerHTML = filtered.map(p => {
     const cat = allCategories.find(c => c.id === p.categoryId);
     const qty = getItemQty(p.id);
-    return `
-    <div class="product-card" data-id="${p.id}">
+    const fallback = 'https://images.unsplash.com/photo-1495474472287-4d71bcdd2085?w=400&q=80';
+    return `<div class="product-card" data-id="${p.id}">
       <div class="product-img-wrap" onclick="openLightbox(this.querySelector('img').src)">
-        <img src="${p.image}" alt="${p.name}" loading="lazy" onerror="this.src='https://images.unsplash.com/photo-1495474472287-4d71bcdd2085?w=400&q=80'">
+        <img src="${p.image || fallback}" alt="${p.name}" loading="lazy" onerror="this.src='${fallback}'">
         ${cat ? `<span class="product-cat-badge">${cat.icon} ${cat.name}</span>` : ''}
       </div>
       <div class="product-info">
@@ -248,9 +223,9 @@ function renderProducts() {
         <div class="product-price">${formatPrice(p.price)}</div>
         <div class="product-controls">
           <div class="qty-controls">
-            <button class="qty-btn" onclick="changeQtyOnCard(${p.id}, -1)" aria-label="تقليل">−</button>
+            <button class="qty-btn" onclick="changeQtyOnCard(${p.id},-1)">−</button>
             <span class="qty-num">${qty}</span>
-            <button class="qty-btn" onclick="changeQtyOnCard(${p.id}, 1)" aria-label="زيادة">+</button>
+            <button class="qty-btn" onclick="changeQtyOnCard(${p.id},1)">+</button>
           </div>
           <button class="add-btn ${qty > 0 ? 'in-cart' : ''}" onclick="addToCartById(${p.id})">
             ${qty > 0 ? '<i class="fas fa-check"></i> في السلة' : '<i class="fas fa-plus"></i> أضف للسلة'}
@@ -267,18 +242,16 @@ function addToCartById(productId) {
 }
 
 function changeQtyOnCard(productId, delta) {
-  const inCart = cart.find(i => i.id === productId);
-  if (inCart) {
+  if (cart.find(i => i.id === productId)) {
     updateQty(productId, delta);
   } else if (delta > 0) {
-    const product = allProducts.find(p => p.id === productId);
-    if (product) addToCart(product);
+    addToCartById(productId);
   }
 }
 
 // ---- Lightbox ----
 function openLightbox(src) {
-  const lb = document.getElementById('lightbox');
+  const lb  = document.getElementById('lightbox');
   const img = document.getElementById('lb-img');
   if (!lb || !img) return;
   img.src = src;
@@ -286,13 +259,10 @@ function openLightbox(src) {
   document.body.style.overflow = 'hidden';
 }
 function closeLightbox() {
-  const lb = document.getElementById('lightbox');
-  if (lb) lb.classList.remove('open');
+  document.getElementById('lightbox')?.classList.remove('open');
   document.body.style.overflow = '';
 }
-document.addEventListener('keydown', e => {
-  if (e.key === 'Escape') { closeLightbox(); }
-});
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeLightbox(); });
 
 // ---- Toast ----
 function showToast(html, type = '') {
@@ -303,18 +273,15 @@ function showToast(html, type = '') {
   toast.innerHTML = html;
   container.appendChild(toast);
   requestAnimationFrame(() => toast.classList.add('show'));
-  setTimeout(() => {
-    toast.classList.remove('show');
-    setTimeout(() => toast.remove(), 400);
-  }, 2800);
+  setTimeout(() => { toast.classList.remove('show'); setTimeout(() => toast.remove(), 400); }, 2800);
 }
 
 // ---- Contact Form ----
 function sendContactWA(e) {
   e.preventDefault();
-  const name = document.getElementById('cf-name')?.value.trim();
+  const name  = document.getElementById('cf-name')?.value.trim();
   const phone = document.getElementById('cf-phone')?.value.trim();
-  const msg = document.getElementById('cf-msg')?.value.trim();
+  const msg   = document.getElementById('cf-msg')?.value.trim();
   if (!name || !msg) return;
   const text = `📩 رسالة جديدة من ${CONFIG.storeName}%0A%0A👤 الاسم: ${name}%0A${phone ? `📱 الهاتف: ${phone}%0A` : ''}%0A💬 الرسالة:%0A${msg}`;
   window.open(`https://wa.me/${CONFIG.whatsappNumber}?text=${text}`, '_blank');

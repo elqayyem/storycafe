@@ -511,6 +511,11 @@ input, textarea { font-family: var(--font-ar); }
   border-color: var(--gold);
   box-shadow: 0 20px 50px rgba(74, 55, 40, 0.25);
 }
+.category-card.cat-selected {
+  border-color: var(--gold);
+  box-shadow: 0 0 0 3px rgba(216,178,110,0.4), 0 20px 50px rgba(74,55,40,0.25);
+  transform: translateY(-4px);
+}
 .category-card img {
   width: 100%; height: 100%;
   object-fit: cover;
@@ -551,10 +556,6 @@ input, textarea { font-family: var(--font-ar); }
 }
 
 /* ---------- Products (inside categories section) ---------- */
-#menu-controls {
-  padding-top: 20px;
-  border-top: 2px solid var(--border);
-}
 .menu-controls { margin-bottom: 28px; }
 .search-wrap {
   position: relative;

@@ -17,7 +17,6 @@ let searchTimer    = null;
   allProducts   = PRODUCTS_LOCAL;
 
   // 2. Render everything synchronously
-  renderCategoryFilters();
   renderCategoriesSection();
   renderProducts();
   updateCartUI();
@@ -63,7 +62,6 @@ async function loadFromSupabase() {
     }));
 
     // Re-render with Supabase data
-    renderCategoryFilters();
     renderCategoriesSection();
     renderProducts();
     updateCartUI();
@@ -134,7 +132,7 @@ function renderCategoriesSection() {
   const grid = document.getElementById('categories-grid');
   if (!grid) return;
   grid.innerHTML = allCategories.map(cat => `
-    <div class="category-card reveal-up" onclick="filterByCategory(${cat.id}); document.getElementById('menu-controls').scrollIntoView({behavior:'smooth', block:'start'})">
+    <div class="category-card reveal-up" data-catid="${cat.id}" onclick="selectCategory(${cat.id})">
       <img src="${cat.image}" alt="${cat.name}" loading="lazy" onerror="this.src='https://images.unsplash.com/photo-1495474472287-4d71bcdd2085?w=400&q=80'">
       <div class="category-overlay">
         <div class="category-icon">${cat.icon}</div>
@@ -145,32 +143,25 @@ function renderCategoriesSection() {
   setTimeout(() => initScrollReveal(), 50);
 }
 
-// ---- Render Category Filters ----
-function renderCategoryFilters() {
-  const container = document.getElementById('menu-filters');
-  if (!container) return;
-  // Remove old category buttons (keep the "all" button)
-  container.querySelectorAll('.filter-btn:not([data-cat="all"])').forEach(b => b.remove());
-  allCategories.forEach(cat => {
-    const btn = document.createElement('button');
-    btn.className = 'filter-btn';
-    btn.dataset.cat = cat.id;
-    btn.innerHTML = `<span>${cat.icon} ${cat.name}</span>`;
-    btn.onclick = () => filterByCategory(cat.id, btn);
-    container.appendChild(btn);
-  });
-}
 
 // ---- Filter ----
-function filterByCategory(catId, btnEl) {
-  activeCategory = catId;
-  document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
-  if (btnEl) {
-    btnEl.classList.add('active');
-  } else {
-    document.querySelector(`[data-cat="${catId}"]`)?.classList.add('active');
-  }
+function selectCategory(catId) {
+  // Toggle: click the active category again to show all
+  activeCategory = (activeCategory === catId) ? 'all' : catId;
+  // Highlight the selected card
+  document.querySelectorAll('.category-card').forEach(card => {
+    const id = parseInt(card.dataset.catid);
+    card.classList.toggle('cat-selected', id === activeCategory);
+  });
   renderProducts();
+  // Scroll to products grid
+  const grid = document.getElementById('menu-grid');
+  if (grid) grid.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+// Keep filterByCategory as alias used by footer links
+function filterByCategory(catId) {
+  selectCategory(catId);
 }
 
 function debounceSearch(val) {

@@ -114,22 +114,7 @@
             </div>
 
             <!-- Products appear here after selecting a category -->
-            <div class="menu-controls reveal-up" id="menu-controls" style="margin-top:48px">
-                <div class="search-wrap">
-                    <i class="fas fa-search search-icon"></i>
-                    <input type="text" id="search-input" class="search-input" placeholder="ابحث عن منتج..." oninput="debounceSearch(this.value)" autocomplete="off">
-                    <button class="search-clear" id="search-clear" onclick="clearSearch()" style="display:none">
-                        <i class="fas fa-times"></i>
-                    </button>
-                </div>
-            </div>
-            <div class="menu-filters" id="menu-filters">
-                <button class="filter-btn active" data-cat="all" onclick="filterByCategory('all', this)">
-                    <span>الكل</span>
-                </button>
-                <!-- Injected by JS -->
-            </div>
-            <div class="menu-grid" id="menu-grid">
+            <div class="menu-grid" id="menu-grid" style="margin-top:48px">
                 <!-- Injected by JS -->
             </div>
             <div class="menu-empty" id="menu-empty" style="display:none">

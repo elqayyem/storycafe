@@ -13,8 +13,11 @@ let searchTimer    = null;
   try { localStorage.removeItem('storycafe_menu_cache'); } catch(e) {}
 
   // 1. Load local data immediately — always works, no network needed
-  allCategories = CATEGORIES_LOCAL;
-  allProducts   = PRODUCTS_LOCAL;
+  allCategories = [...CATEGORIES_LOCAL];
+  allProducts   = [...PRODUCTS_LOCAL];
+
+  // 1b. Apply edits made in the admin panel (shared via localStorage, same origin)
+  applyAdminOverlays();
 
   // 2. Render everything synchronously
   renderCategoriesSection();
@@ -32,6 +35,38 @@ let searchTimer    = null;
     loadFromSupabase();
   }
 })();
+
+// ---- Apply admin edits (saved by the admin panel in localStorage) ----
+// The admin panel (hadi.html) and this page share localStorage because they are
+// served from the same origin. The admin writes added/edited/deleted items to
+// these keys; we replay them here so changes appear on the public site.
+function applyAdminOverlays() {
+  try {
+    const added       = JSON.parse(localStorage.getItem('sc_admin_products')     || '[]');
+    const edited      = JSON.parse(localStorage.getItem('sc_admin_edits')        || '{}');
+    const deleted     = JSON.parse(localStorage.getItem('sc_admin_deleted')      || '[]');
+    const addedCats   = JSON.parse(localStorage.getItem('sc_admin_cats')         || '[]');
+    const deletedCats = JSON.parse(localStorage.getItem('sc_admin_cats_deleted') || '[]');
+
+    // Products: drop deleted, apply edits, append new
+    allProducts = allProducts
+      .filter(p => !deleted.includes(p.id))
+      .map(p => edited[p.id] ? { ...p, ...edited[p.id] } : p);
+    added.forEach(p => { if (!allProducts.find(x => x.id === p.id)) allProducts.push(p); });
+
+    // Categories: drop deleted, append new
+    allCategories = allCategories.filter(c => !deletedCats.includes(c.id));
+    addedCats.forEach(c => { if (!allCategories.find(x => x.id === c.id)) allCategories.push(c); });
+
+    // Hide products the admin marked unavailable (متاح ✗)
+    allProducts = allProducts.filter(p => p.available !== false);
+
+    // Recompute each category's product count
+    allCategories.forEach(c => { c.count = allProducts.filter(p => p.categoryId === c.id).length; });
+  } catch (e) {
+    console.warn('[StoryCafe] admin overlay merge failed:', e.message);
+  }
+}
 
 // ---- Loading Screen ----
 function initLoadingScreen() {

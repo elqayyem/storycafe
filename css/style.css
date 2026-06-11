@@ -550,10 +550,10 @@ input, textarea { font-family: var(--font-ar); }
   letter-spacing: 1px;
 }
 
-/* ---------- Menu Section ---------- */
-.menu-section {
-  padding: 100px 0;
-  background: linear-gradient(180deg, var(--light) 0%, #EDE8E3 100%);
+/* ---------- Products (inside categories section) ---------- */
+#menu-controls {
+  padding-top: 20px;
+  border-top: 2px solid var(--border);
 }
 .menu-controls { margin-bottom: 28px; }
 .search-wrap {

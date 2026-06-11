@@ -134,7 +134,7 @@ function renderCategoriesSection() {
   const grid = document.getElementById('categories-grid');
   if (!grid) return;
   grid.innerHTML = allCategories.map(cat => `
-    <div class="category-card reveal-up" onclick="filterByCategory(${cat.id}); document.getElementById('menu').scrollIntoView({behavior:'smooth'})">
+    <div class="category-card reveal-up" onclick="filterByCategory(${cat.id}); document.getElementById('menu-controls').scrollIntoView({behavior:'smooth', block:'start'})">
       <img src="${cat.image}" alt="${cat.name}" loading="lazy" onerror="this.src='https://images.unsplash.com/photo-1495474472287-4d71bcdd2085?w=400&q=80'">
       <div class="category-overlay">
         <div class="category-icon">${cat.icon}</div>

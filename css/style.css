@@ -244,7 +244,9 @@ input, textarea { font-family: var(--font-ar); }
 .nav-logo img {
   width: 56px; height: 56px;
   object-fit: cover;
-  border-radius: 50%;
+  border-radius: 50% !important;
+  background: #fff;
+  display: block;
 }
 .nav-logo-text { display: flex; flex-direction: column; }
 .logo-main {

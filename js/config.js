@@ -34,5 +34,5 @@ const CONFIG = {
   cacheKey: 'storycafe_menu_cache_v2',
   cacheTTL: 24 * 60 * 60 * 1000,       // 24 hours in ms
   searchDebounce: 300,                   // ms
-  adminPassword: 'storycafe2024',        // change in production
+  adminPassword: 'ash2oush#$%543',
 };

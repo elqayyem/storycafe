@@ -16,10 +16,9 @@ let _csrfToken       = null;
 // ═══════════════════════════════════════
 // BOOT
 // ═══════════════════════════════════════
-(async function adminBoot() {
+(function adminBoot() {
   _csrfToken = Security.csrf.get();
-
-  if (await Security.session.isValid()) {
+  if (sessionStorage.getItem('sc_admin') === '1') {
     showDashboard();
     startSecurityWatchers();
   } else {
@@ -42,90 +41,32 @@ function startSecurityWatchers() {
 // ═══════════════════════════════════════
 // AUTH
 // ═══════════════════════════════════════
-async function adminLogin(e) {
+function adminLogin(e) {
   e.preventDefault();
-
-  // CSRF check
-  const formToken = document.getElementById('login-csrf')?.value;
-  if (!Security.csrf.verify(formToken)) {
-    showAdminToast('طلب غير صالح. أعد تحميل الصفحة.', 'error');
-    return;
-  }
 
   // Brute-force check
   const bf = Security.bruteForce.check();
   if (bf.locked) {
-    showLoginError(`حسابك مقفل. حاول مرة أخرى بعد ${bf.remaining} دقيقة`);
+    showLoginError(`الحساب مقفل مؤقتاً. حاول بعد ${bf.remaining} دقيقة`);
     return;
   }
 
-  const email    = (document.getElementById('login-email')?.value || '').trim().toLowerCase();
-  const password = document.getElementById('login-pw')?.value || '';
-  const btn      = document.getElementById('login-submit');
+  const password = (document.getElementById('login-pw')?.value || '').trim();
+  const correct  = (typeof CONFIG !== 'undefined' && CONFIG.adminPassword) ? CONFIG.adminPassword : 'storycafe2024';
 
-  // Basic input validation
-  if (!password || password.length < 6) {
-    showLoginError('أدخل بيانات صحيحة');
-    return;
-  }
-
-  if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> جاري التحقق...'; }
-
-  try {
-    // ── Path A: Supabase Auth (production) ──────────────────
-    if (typeof supabase !== 'undefined' && supabase &&
-        typeof SUPABASE_URL !== 'undefined' && SUPABASE_URL !== 'https://YOUR_PROJECT_ID.supabase.co') {
-
-      const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-
-      if (error) {
-        await Security.bruteForce.increment();
-        await Security.audit.log('LOGIN_FAILED', { email, reason: 'bad_credentials' });
-        const remaining = Security.bruteForce.check().remaining;
-        showLoginError(`بيانات غير صحيحة. متبقي ${remaining} محاولة`);
-        return;
-      }
-
-      // Verify admin role in admin_profiles table
-      const { data: profile, error: pe } = await supabase
-        .from('admin_profiles')
-        .select('role, is_active')
-        .eq('id', data.user.id)
-        .maybeSingle();
-
-      if (pe || !profile || !profile.is_active) {
-        await supabase.auth.signOut();
-        await Security.audit.log('LOGIN_UNAUTHORIZED', { email });
-        showLoginError('ليس لديك صلاحية الوصول');
-        return;
-      }
-
-      sessionStorage.setItem('sc_admin_role', Security.sanitize(profile.role));
-      await Security.audit.log('LOGIN_SUCCESS', { email, role: profile.role });
-
-    // ── Path B: Local password fallback (dev / no Supabase) ─
-    } else {
-      const correct = (typeof CONFIG !== 'undefined' && CONFIG.adminPassword) || 'storycafe2024';
-      if (password !== correct) {
-        Security.bruteForce.increment();
-        const remaining = Security.bruteForce.check().remaining;
-        showLoginError(`كلمة المرور غير صحيحة. متبقي ${remaining} محاولة`);
-        return;
-      }
-      sessionStorage.setItem('sc_admin', '1');
-    }
-
+  if (password === correct) {
     Security.bruteForce.reset();
-    Security.csrf.rotate();
+    sessionStorage.setItem('sc_admin', '1');
     document.getElementById('login-error').style.display = 'none';
     showDashboard();
     startSecurityWatchers();
-
-  } catch (err) {
-    console.error('[Admin] Login error:', err);
-    showAdminToast('حدث خطأ. حاول مرة أخرى.', 'error');
-  } finally {
-    if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-sign-in-alt"></i> دخول'; }
+  } else {
+    const status = Security.bruteForce.increment();
+    if (status.locked) {
+      showLoginError(`كلمة المرور غير صحيحة. الحساب مقفل لمدة ${Security.bruteForce.check().remaining} دقيقة`);
+    } else {
+      showLoginError(`كلمة المرور غير صحيحة. متبقي ${Security.bruteForce.check().remaining} محاولة`);
+    }
   }
 }
 
@@ -136,14 +77,10 @@ function showLoginError(msg) {
   if (ms) ms.textContent = msg || 'بيانات غير صحيحة';
 }
 
-async function adminLogout(reason = 'manual') {
+function adminLogout(reason = 'manual') {
   Security.autoLogout.stop();
-  await Security.audit.log('LOGOUT', { reason });
   sessionStorage.removeItem('sc_admin');
   sessionStorage.removeItem('sc_admin_role');
-  if (typeof supabase !== 'undefined' && supabase) {
-    try { await supabase.auth.signOut(); } catch {}
-  }
   showLoginPage();
 }
 

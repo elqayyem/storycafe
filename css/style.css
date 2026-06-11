@@ -243,7 +243,8 @@ input, textarea { font-family: var(--font-ar); }
 }
 .nav-logo img {
   width: 56px; height: 56px;
-  object-fit: contain;
+  object-fit: cover;
+  border-radius: 50%;
 }
 .nav-logo-text { display: flex; flex-direction: column; }
 .logo-main {

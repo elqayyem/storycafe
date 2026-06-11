@@ -228,7 +228,7 @@ function renderProducts() {
             <button class="qty-btn" onclick="changeQtyOnCard(${p.id},1)">+</button>
           </div>
           <button class="add-btn ${qty > 0 ? 'in-cart' : ''}" onclick="addToCartById(${p.id})">
-            ${qty > 0 ? '<i class="fas fa-check"></i> في السلة' : '<i class="fas fa-plus"></i> أضف للسلة'}
+            ${qty > 0 ? '<i class="fas fa-check"></i> Added' : '<i class="fas fa-plus"></i> Add'}
           </button>
         </div>
       </div>

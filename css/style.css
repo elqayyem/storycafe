@@ -242,10 +242,8 @@ input, textarea { font-family: var(--font-ar); }
   flex-shrink: 0;
 }
 .nav-logo img {
-  width: 48px; height: 48px;
+  width: 56px; height: 56px;
   object-fit: contain;
-  border-radius: 50%;
-  border: 2px solid rgba(216, 178, 110, 0.4);
 }
 .nav-logo-text { display: flex; flex-direction: column; }
 .logo-main {

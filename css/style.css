@@ -358,7 +358,6 @@ input, textarea { font-family: var(--font-ar); }
   background-image: url('https://images.unsplash.com/photo-1501339847302-ac426a4a7cbb?w=1920&q=80');
   background-size: cover;
   background-position: center;
-  background-attachment: fixed;
   will-change: transform;
 }
 .hero-overlay {

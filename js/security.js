@@ -252,5 +252,8 @@ const Security = (() => {
   // ═══════════════════════════════════════════
   // PUBLIC API
   // ═══════════════════════════════════════════
-  return { sanitize, sanitizeAttr, sanitizeURL, validateInput, bruteForce, rateLimit, autoLogout, audit, validateFile, verifyMagicBytes, csrf, session };
+  // escapeHTML is an alias of sanitize (named per security spec)
+  const escapeHTML = sanitize;
+
+  return { sanitize, escapeHTML, sanitizeAttr, sanitizeURL, validateInput, bruteForce, rateLimit, autoLogout, audit, validateFile, verifyMagicBytes, csrf, session };
 })();

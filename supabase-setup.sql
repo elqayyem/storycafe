@@ -132,22 +132,41 @@ ON CONFLICT (id) DO NOTHING;
 SELECT setval(pg_get_serial_sequence('categories','id'), (SELECT MAX(id) FROM categories));
 SELECT setval(pg_get_serial_sequence('products','id'),   (SELECT MAX(id) FROM products));
 
-ALTER TABLE categories ENABLE ROW LEVEL SECURITY;
-ALTER TABLE products   ENABLE ROW LEVEL SECURITY;
-ALTER TABLE orders     ENABLE ROW LEVEL SECURITY;
+-- ---------- AUDIT LOG TABLE ----------
+CREATE TABLE IF NOT EXISTS security_audit_log (
+  id      BIGSERIAL PRIMARY KEY,
+  action  TEXT, details TEXT, ua TEXT, url TEXT,
+  ts      TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE categories          ENABLE ROW LEVEL SECURITY;
+ALTER TABLE products            ENABLE ROW LEVEL SECURITY;
+ALTER TABLE orders              ENABLE ROW LEVEL SECURITY;
+ALTER TABLE security_audit_log  ENABLE ROW LEVEL SECURITY;
+
+-- PUBLIC: read-only access to the menu
 DROP POLICY IF EXISTS cat_read  ON categories;  CREATE POLICY cat_read  ON categories FOR SELECT USING (TRUE);
 DROP POLICY IF EXISTS prod_read ON products;    CREATE POLICY prod_read ON products   FOR SELECT USING (TRUE);
-DROP POLICY IF EXISTS cat_write  ON categories; CREATE POLICY cat_write  ON categories FOR ALL USING (TRUE) WITH CHECK (TRUE);
-DROP POLICY IF EXISTS prod_write ON products;   CREATE POLICY prod_write ON products   FOR ALL USING (TRUE) WITH CHECK (TRUE);
+
+-- AUTHENTICATED ADMIN ONLY: insert / update / delete the menu
+DROP POLICY IF EXISTS cat_write  ON categories; CREATE POLICY cat_write  ON categories FOR ALL TO authenticated USING (TRUE) WITH CHECK (TRUE);
+DROP POLICY IF EXISTS prod_write ON products;   CREATE POLICY prod_write ON products   FOR ALL TO authenticated USING (TRUE) WITH CHECK (TRUE);
+
+-- ORDERS: anyone can place one; only the admin can read / update them
 DROP POLICY IF EXISTS ord_insert ON orders; CREATE POLICY ord_insert ON orders FOR INSERT WITH CHECK (TRUE);
-DROP POLICY IF EXISTS ord_read   ON orders; CREATE POLICY ord_read   ON orders FOR SELECT USING (TRUE);
-DROP POLICY IF EXISTS ord_update ON orders; CREATE POLICY ord_update ON orders FOR UPDATE USING (TRUE) WITH CHECK (TRUE);
+DROP POLICY IF EXISTS ord_read   ON orders; CREATE POLICY ord_read   ON orders FOR SELECT TO authenticated USING (TRUE);
+DROP POLICY IF EXISTS ord_update ON orders; CREATE POLICY ord_update ON orders FOR UPDATE TO authenticated USING (TRUE) WITH CHECK (TRUE);
+
+-- AUDIT LOG: only the authenticated admin can write/read
+DROP POLICY IF EXISTS audit_insert ON security_audit_log; CREATE POLICY audit_insert ON security_audit_log FOR INSERT TO authenticated WITH CHECK (TRUE);
+DROP POLICY IF EXISTS audit_read   ON security_audit_log; CREATE POLICY audit_read   ON security_audit_log FOR SELECT TO authenticated USING (TRUE);
 
 -- ---------- STORAGE BUCKET (for admin photo uploads) ----------
 INSERT INTO storage.buckets (id, name, public) VALUES ('product-images','product-images', TRUE)
 ON CONFLICT (id) DO UPDATE SET public = TRUE;
 
+-- PUBLIC can view images; only the AUTHENTICATED admin can upload / change / delete
 DROP POLICY IF EXISTS img_read   ON storage.objects; CREATE POLICY img_read   ON storage.objects FOR SELECT USING (bucket_id = 'product-images');
-DROP POLICY IF EXISTS img_write  ON storage.objects; CREATE POLICY img_write  ON storage.objects FOR INSERT WITH CHECK (bucket_id = 'product-images');
-DROP POLICY IF EXISTS img_update ON storage.objects; CREATE POLICY img_update ON storage.objects FOR UPDATE USING (bucket_id = 'product-images');
-DROP POLICY IF EXISTS img_delete ON storage.objects; CREATE POLICY img_delete ON storage.objects FOR DELETE USING (bucket_id = 'product-images');
+DROP POLICY IF EXISTS img_write  ON storage.objects; CREATE POLICY img_write  ON storage.objects FOR INSERT TO authenticated WITH CHECK (bucket_id = 'product-images');
+DROP POLICY IF EXISTS img_update ON storage.objects; CREATE POLICY img_update ON storage.objects FOR UPDATE TO authenticated USING (bucket_id = 'product-images');
+DROP POLICY IF EXISTS img_delete ON storage.objects; CREATE POLICY img_delete ON storage.objects FOR DELETE TO authenticated USING (bucket_id = 'product-images');

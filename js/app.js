@@ -239,9 +239,10 @@ function renderProducts() {
     const cat = allCategories.find(c => c.id === p.categoryId);
     const qty = getItemQty(p.id);
     const fallback = 'https://images.unsplash.com/photo-1495474472287-4d71bcdd2085?w=400&q=80';
+    const imgFallback = p.imgFallback || fallback;
     return `<div class="product-card" data-id="${p.id}">
       <div class="product-img-wrap" onclick="openLightbox(this.querySelector('img').src)">
-        <img src="${p.image || fallback}" alt="${p.name}" loading="lazy" onerror="this.src='${fallback}'">
+        <img src="${p.image || imgFallback}" alt="${p.name}" loading="lazy" onerror="this.onerror=null;this.src='${imgFallback}'">
         ${cat ? `<span class="product-cat-badge">${cat.icon} ${cat.name}</span>` : ''}
       </div>
       <div class="product-info">

@@ -142,3 +142,12 @@ DROP POLICY IF EXISTS prod_write ON products;   CREATE POLICY prod_write ON prod
 DROP POLICY IF EXISTS ord_insert ON orders; CREATE POLICY ord_insert ON orders FOR INSERT WITH CHECK (TRUE);
 DROP POLICY IF EXISTS ord_read   ON orders; CREATE POLICY ord_read   ON orders FOR SELECT USING (TRUE);
 DROP POLICY IF EXISTS ord_update ON orders; CREATE POLICY ord_update ON orders FOR UPDATE USING (TRUE) WITH CHECK (TRUE);
+
+-- ---------- STORAGE BUCKET (for admin photo uploads) ----------
+INSERT INTO storage.buckets (id, name, public) VALUES ('product-images','product-images', TRUE)
+ON CONFLICT (id) DO UPDATE SET public = TRUE;
+
+DROP POLICY IF EXISTS img_read   ON storage.objects; CREATE POLICY img_read   ON storage.objects FOR SELECT USING (bucket_id = 'product-images');
+DROP POLICY IF EXISTS img_write  ON storage.objects; CREATE POLICY img_write  ON storage.objects FOR INSERT WITH CHECK (bucket_id = 'product-images');
+DROP POLICY IF EXISTS img_update ON storage.objects; CREATE POLICY img_update ON storage.objects FOR UPDATE USING (bucket_id = 'product-images');
+DROP POLICY IF EXISTS img_delete ON storage.objects; CREATE POLICY img_delete ON storage.objects FOR DELETE USING (bucket_id = 'product-images');

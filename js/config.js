@@ -5,8 +5,8 @@
 // 1. Go to https://supabase.com → your project → Settings → API
 // 2. Copy the Project URL and anon public key
 
-const SUPABASE_URL = 'https://YOUR_PROJECT_ID.supabase.co';
-const SUPABASE_ANON_KEY = 'YOUR_ANON_PUBLIC_KEY';
+const SUPABASE_URL = 'https://qljnzbehcanykfaedxsu.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFsam56YmVoY2FueWtmYWVkeHN1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE1Nzk1NDUsImV4cCI6MjA5NzE1NTU0NX0.font6q-f3zYDMRlHa04--TZa63ZNgmlp3YV_f_r00iY';
 
 // Initialize Supabase client (null if not configured).
 // NOTE: the Supabase UMD library exposes a global named `supabase`. We must NOT

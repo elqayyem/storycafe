@@ -305,7 +305,7 @@ function renderProductsPage() {
       </td>
       <td class="td-actions">
         <button class="btn-icon btn-edit" onclick="openProductModal(${Number(p.id)})" title="تعديل"><i class="fas fa-edit"></i></button>
-        <button class="btn-icon btn-del"  onclick="confirmDelete('product',${Number(p.id)},${JSON.stringify(Security.sanitize(p.name))})" title="حذف"><i class="fas fa-trash"></i></button>
+        <button class="btn-icon btn-del"  onclick="confirmDelete('product',${Number(p.id)})" title="حذف"><i class="fas fa-trash"></i></button>
       </td>
     </tr>`;
   }).join('');
@@ -628,7 +628,7 @@ function renderCategoriesPage() {
         <img src="${Security.sanitizeURL(c.image) || fb}" alt="" onerror="this.src='${fb}'">
         <div class="cat-admin-overlay">
           <button class="btn-icon btn-edit" onclick="openCatModal(${Number(c.id)})" title="تعديل"><i class="fas fa-edit"></i></button>
-          <button class="btn-icon btn-del"  onclick="confirmDelete('cat',${Number(c.id)},${JSON.stringify(Security.sanitize(c.name))})" title="حذف"><i class="fas fa-trash"></i></button>
+          <button class="btn-icon btn-del"  onclick="confirmDelete('cat',${Number(c.id)})" title="حذف"><i class="fas fa-trash"></i></button>
         </div>
       </div>
       <div class="cat-admin-info">
@@ -841,12 +841,16 @@ function formatOrderItems(items) {
 // ═══════════════════════════════════════
 // CONFIRM DELETE
 // ═══════════════════════════════════════
-function confirmDelete(type, id, name) {
+function confirmDelete(type, id) {
   const modal = document.getElementById('confirm-modal');
   const msg   = document.getElementById('confirm-msg');
   const btn   = document.getElementById('confirm-ok-btn');
   if (!modal) return;
-  // name is already sanitized before being passed here
+  // Look the name up by id (avoids quoting issues in inline onclick)
+  let name = '';
+  if (type === 'product')   { const p = adminProducts.find(x => x.id === Number(id));   name = p ? p.name : ''; }
+  else if (type === 'cat')  { const c = adminCategories.find(x => x.id === Number(id)); name = c ? c.name : ''; }
+  // textContent is XSS-safe, so the raw name is fine here
   msg.textContent = `هل أنت متأكد من حذف "${name}"؟ لا يمكن التراجع.`;
   pendingConfirmFn = async () => {
     closeModal('confirm-modal');

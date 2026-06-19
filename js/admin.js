@@ -408,28 +408,34 @@ async function saveProduct(e) {
 }
 
 async function addProduct(data) {
-  const newId   = Date.now();
-  const product = { id: newId, ...data };
+  Security.audit.log('PRODUCT_CREATED', { name: data.name, price: data.price, catId: data.categoryId });
 
-  await Security.audit.log('PRODUCT_CREATED', { name: data.name, price: data.price, catId: data.categoryId });
-
+  let product;
   if (typeof supabase !== 'undefined' && supabase) {
-    try {
-      const { error } = await supabase.from('products').insert([{
-        name_ar: data.name, name_en: data.name, price: data.price,
-        category_id: data.categoryId, is_available: data.available, image_url: data.image,
-      }]);
-      if (error) throw error;
-      showAdminToast(`تم إضافة "${data.name}" ✓`, 'success');
-    } catch(err) {
-      showAdminToast('Supabase فشل، حُفظ محلياً', 'warning');
-      saveProductLocally(product);
+    // Insert and read back the row so we use the DB-generated integer id
+    const { data: rows, error } = await supabase.from('products').insert([{
+      name_ar: data.name, name_en: data.name, price: data.price,
+      category_id: data.categoryId, is_available: data.available, image_url: data.image,
+    }]).select();
+    if (error || !rows || !rows[0]) {
+      showAdminToast('تعذّرت الإضافة: ' + ((error && error.message) || 'تأكد من تسجيل الدخول كمسؤول'), 'error');
+      return;
     }
+    const row = rows[0];
+    product = {
+      id: row.id, categoryId: row.category_id,
+      name: row.name_en || row.name_ar, price: row.price,
+      image: row.image_url, available: row.is_available,
+    };
+    showAdminToast(`تم إضافة "${data.name}" ✓`, 'success');
   } else {
+    product = { id: Date.now(), ...data };
     saveProductLocally(product);
     showAdminToast(`تم إضافة "${data.name}" محلياً ✓`, 'success');
   }
+
   adminProducts.push(product);
+  filteredProducts.push(product);
 }
 
 async function updateProduct(id, data) {
@@ -720,23 +726,22 @@ async function saveCat(e) {
 }
 
 async function addCategory(data) {
-  const newId = Date.now();
-  const cat   = { id: newId, ...data };
+  Security.audit.log('CATEGORY_CREATED', { name: data.name });
 
-  await Security.audit.log('CATEGORY_CREATED', { name: data.name });
-
+  let cat;
   if (typeof supabase !== 'undefined' && supabase) {
-    try {
-      const { error } = await supabase.from('categories').insert([{
-        name_ar: data.name, name_en: data.nameEn, icon: data.icon, image_url: data.image, display_order: data.displayOrder,
-      }]);
-      if (error) throw error;
-      showAdminToast(`تم إضافة "${data.name}" ✓`, 'success');
-    } catch {
-      showAdminToast('Supabase فشل، حُفظ محلياً', 'warning');
-      saveCatLocally(cat);
+    const { data: rows, error } = await supabase.from('categories').insert([{
+      name_ar: data.name, name_en: data.nameEn, icon: data.icon, image_url: data.image, display_order: data.displayOrder,
+    }]).select();
+    if (error || !rows || !rows[0]) {
+      showAdminToast('تعذّرت الإضافة: ' + ((error && error.message) || 'تأكد من تسجيل الدخول كمسؤول'), 'error');
+      return;
     }
+    const row = rows[0];
+    cat = { id: row.id, name: row.name_ar, nameEn: row.name_en, icon: row.icon, image: row.image_url, displayOrder: row.display_order };
+    showAdminToast(`تم إضافة "${data.name}" ✓`, 'success');
   } else {
+    cat = { id: Date.now(), ...data };
     saveCatLocally(cat);
     showAdminToast(`تم إضافة "${data.name}" محلياً ✓`, 'success');
   }

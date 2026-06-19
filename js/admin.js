@@ -466,15 +466,14 @@ async function toggleAvailability(id) {
 
 async function deleteProduct(id) {
   const p = adminProducts.find(x => x.id === id);
-  adminProducts = adminProducts.filter(x => x.id !== id);
 
-  await Security.audit.log('PRODUCT_DELETED', { id, name: p?.name });
-
+  // Delete in the database FIRST; only touch the UI if it really succeeded.
   if (typeof supabase !== 'undefined' && supabase) {
-    try {
-      const { error } = await supabase.from('products').delete().eq('id', id);
-      if (error) throw error;
-    } catch { markDeletedLocally('sc_admin_deleted', id); }
+    const { error } = await supabase.from('products').delete().eq('id', id);
+    if (error) {
+      showAdminToast('تعذّر الحذف: ' + (error.message || 'تأكد من تسجيل الدخول كمسؤول'), 'error');
+      return;
+    }
   } else {
     markDeletedLocally('sc_admin_deleted', id);
     try {
@@ -482,6 +481,10 @@ async function deleteProduct(id) {
       localStorage.setItem('sc_admin_products', JSON.stringify(arr.filter(x => x.id !== id)));
     } catch {}
   }
+
+  Security.audit.log('PRODUCT_DELETED', { id, name: p?.name });
+  adminProducts    = adminProducts.filter(x => x.id !== id);
+  filteredProducts = filteredProducts.filter(x => x.id !== id);
   showAdminToast('تم حذف المنتج ✓', 'success');
   renderProductsPage();
 }
@@ -631,15 +634,24 @@ function renderCategoriesPage() {
           <button class="btn-icon btn-del"  onclick="confirmDelete('cat',${Number(c.id)})" title="حذف"><i class="fas fa-trash"></i></button>
         </div>
       </div>
-      <div class="cat-admin-info">
+      <div class="cat-admin-info" onclick="showCategoryProducts(${Number(c.id)})" style="cursor:pointer" title="عرض منتجات هذا التصنيف">
         <span class="cat-icon">${Security.sanitize(c.icon || '☕')}</span>
         <div>
           <div class="cat-name">${Security.sanitize(c.name)}</div>
-          <div class="cat-count">${count} منتج</div>
+          <div class="cat-count">${count} منتج <i class="fas fa-arrow-left" style="font-size:11px;opacity:.6"></i></div>
         </div>
       </div>
     </div>`;
   }).join('');
+}
+
+// Clicking a category card jumps to the Products page filtered to that category
+function showCategoryProducts(catId) {
+  const btn = document.querySelector(".sidebar-nav .sb-link[onclick*=\"'products'\"]");
+  showPage('products', btn);
+  const sel = document.getElementById('prod-cat-filter');
+  if (sel) sel.value = String(catId);
+  filterAdminByCategory(catId);
 }
 
 // ═══════════════════════════════════════
@@ -754,15 +766,13 @@ async function updateCategory(id, data) {
 
 async function deleteCategory(id) {
   const c = adminCategories.find(x => x.id === id);
-  adminCategories = adminCategories.filter(x => x.id !== id);
-
-  await Security.audit.log('CATEGORY_DELETED', { id, name: c?.name });
 
   if (typeof supabase !== 'undefined' && supabase) {
-    try {
-      const { error } = await supabase.from('categories').delete().eq('id', id);
-      if (error) throw error;
-    } catch { markDeletedLocally('sc_admin_cats_deleted', id); }
+    const { error } = await supabase.from('categories').delete().eq('id', id);
+    if (error) {
+      showAdminToast('تعذّر الحذف: ' + (error.message || 'تأكد من تسجيل الدخول كمسؤول'), 'error');
+      return;
+    }
   } else {
     markDeletedLocally('sc_admin_cats_deleted', id);
     try {
@@ -770,6 +780,9 @@ async function deleteCategory(id) {
       localStorage.setItem('sc_admin_cats', JSON.stringify(cats.filter(x => x.id !== id)));
     } catch {}
   }
+
+  Security.audit.log('CATEGORY_DELETED', { id, name: c?.name });
+  adminCategories = adminCategories.filter(x => x.id !== id);
   showAdminToast('تم حذف التصنيف ✓', 'success');
   renderCategoriesPage();
 }

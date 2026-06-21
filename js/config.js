@@ -40,5 +40,6 @@ const CONFIG = {
   cacheKey: 'storycafe_menu_cache_v2',
   cacheTTL: 24 * 60 * 60 * 1000,       // 24 hours in ms
   searchDebounce: 300,                   // ms
-  adminPassword: 'ash2oush#$%543',
+  // Admin auth is handled entirely by Supabase Auth (email + password).
+  // No admin password is stored in client code.
 };

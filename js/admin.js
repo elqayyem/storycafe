@@ -55,46 +55,31 @@ async function adminLogin(e) {
   const email    = (document.getElementById('login-email')?.value || '').trim();
   const password = (document.getElementById('login-pw')?.value || '').trim();
   const submitBtn = document.getElementById('login-submit');
-  if (submitBtn) { submitBtn.disabled = true; }
 
-  // ---- Primary: Supabase Auth (email + password) ----
-  if (typeof supabase !== 'undefined' && supabase) {
-    try {
-      const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-      if (error || !data || !data.session) throw (error || new Error('no session'));
-      Security.bruteForce.reset();
-      document.getElementById('login-error').style.display = 'none';
-      Security.audit.log('ADMIN_LOGIN', { email });
-      showDashboard();
-      startSecurityWatchers();
-    } catch (err) {
-      const status = Security.bruteForce.increment();
-      const left = Security.bruteForce.check().remaining;
-      showLoginError(status.locked
-        ? `بيانات الدخول غير صحيحة. الحساب مقفل لمدة ${left} دقيقة`
-        : `بيانات الدخول غير صحيحة. متبقي ${left} محاولة`);
-    } finally {
-      if (submitBtn) submitBtn.disabled = false;
-    }
+  // Admin auth is Supabase-only — no hardcoded password fallback.
+  if (typeof supabase === 'undefined' || !supabase) {
+    showLoginError('تعذّر الاتصال بالخادم. حاول لاحقاً.');
     return;
   }
 
-  // ---- Fallback: offline / Supabase unavailable → password-only ----
-  const correct = (typeof CONFIG !== 'undefined' && CONFIG.adminPassword) ? CONFIG.adminPassword : 'ash2oush#$%543';
-  if (password === correct) {
+  if (submitBtn) submitBtn.disabled = true;
+  try {
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error || !data || !data.session) throw (error || new Error('no session'));
     Security.bruteForce.reset();
-    sessionStorage.setItem('sc_admin', '1');
     document.getElementById('login-error').style.display = 'none';
+    Security.audit.log('ADMIN_LOGIN', { email });
     showDashboard();
     startSecurityWatchers();
-  } else {
+  } catch (err) {
     const status = Security.bruteForce.increment();
     const left = Security.bruteForce.check().remaining;
     showLoginError(status.locked
-      ? `كلمة المرور غير صحيحة. الحساب مقفل لمدة ${left} دقيقة`
-      : `كلمة المرور غير صحيحة. متبقي ${left} محاولة`);
+      ? `بيانات الدخول غير صحيحة. الحساب مقفل لمدة ${left} دقيقة`
+      : `بيانات الدخول غير صحيحة. متبقي ${left} محاولة`);
+  } finally {
+    if (submitBtn) submitBtn.disabled = false;
   }
-  if (submitBtn) submitBtn.disabled = false;
 }
 
 function showLoginError(msg) {
